@@ -3,11 +3,16 @@ package open5g.lib.axis
 import spinal.core._
 import spinal.lib._
 
-case class TorusConfig( axisCfg         : AxisConfig,
-                        DIM_SIZE        : Int,
-                        TERM_BUFF_SIZE  : Int,
-                        XB_BUFF_SIZE    : Int,
-                        ROUTING_ALLOC   : String,
-                        SWITCH_ALLOC    : String
+case class Torus_sw(config:TorusConfig) extends Component {
 
-                      )
+  val io = new Bundle {
+    val mTerm = master(Axis(config.axisCfg))
+    val sTerm = slave(Axis(config.axisCfg))
+    val mX    = master(Axis(config.axisCfg))
+    val sX    = slave(Axis(config.axisCfg))
+    val mY    = master(Axis(config.axisCfg))
+    val sY    = slave(Axis(config.axisCfg))
+
+  }
+
+}
