@@ -20,8 +20,8 @@ trait AxisFifoIO {
     val q = master(Axis(cfg.acfg,cfg.userWidth)) 
   }
   val state = if (cfg.useState) new Bundle {
-    val space    = out UInt(cfg.wSize bits)
-    val occupied = out UInt(cfg.wSize bits)
+    val space    = out UInt(cfg.sSize bits)
+    val occupied = out UInt(cfg.sSize bits)
   } else null
   val addr = if (cfg.useAddr) new Bundle {
     val read  = out UInt(cfg.sSize bits)
@@ -29,7 +29,7 @@ trait AxisFifoIO {
   } else null
 }
 
-case class AxisFifoFlop(cfg:AxisFifoConfig) extends AxisFifoIO {
+case class AxisFifoFlop(cfg:AxisFifoConfig) extends Component with AxisFifoIO {
 
   assert(cfg.wSize == 0, s"fifo flop wSize != 0")
 
@@ -57,7 +57,7 @@ case class AxisFifoFlop(cfg:AxisFifoConfig) extends AxisFifoIO {
   }
 }
 
-case class AxisFifoFlop2(cfg:AxisFifoConfig) extends AxisFifoIO {
+case class AxisFifoFlop2(cfg:AxisFifoConfig)  extends Component with AxisFifoIO {
 
   assert(cfg.wSize == 1, s"fifo flop 2 wSize != 1")
 
@@ -87,22 +87,22 @@ case class AxisFifoFlop2(cfg:AxisFifoConfig) extends AxisFifoIO {
   buf drive io.q
 
   if(cfg.useState) {
-
     val occupied = (temp.tvalid ? U(1,2 bits) | U(0,2 bits)) + (buf.tvalid ? U(1,2 bits) | U(0,2 bits))
     state.space := U(2) - occupied
     state.occupied := occupied
   }
 }
 
-case class AxisFifoRam(cfg:AxisFifoConfig) extends AxisFifoIO {
+case class AxisFifoRam(cfg:AxisFifoConfig)  extends Component with AxisFifoIO {
 
   val buf = Axis(cfg.acfg,cfg.userWidth)
+  val o = Reg(Axis(cfg.acfg,cfg.userWidth))
   val full = Bool
   val empty = Bool
 
   val write     = io.d.tvalid & buf.tready
   val read_int  = !empty & buf.tready
-  val read      = io.q.tready & buf.tvalid
+  val read      = io.q.tready & o.tvalid
   val wr_addr   = Reg(UInt(cfg.wSize bits)) init 0
   val rd_addr   = Reg(UInt(cfg.wSize bits)) init 0
   
@@ -160,7 +160,6 @@ case class AxisFifoRam(cfg:AxisFifoConfig) extends AxisFifoIO {
 
   empty := empty_reg
   full  := full_reg
-  val o = Reg(Axis(cfg.acfg,cfg.userWidth))
   when(io.clear) {
     o.tvalid := False
   }.elsewhen(buf.tready) {
