@@ -13,7 +13,40 @@ class axisdut extends Component {
   }
   io.xi >> io.xo
 }
+class fifodut extends Component {
+  val acfg = AxisConfig(64)
+  val fcfg = AxisFifoConfig(acfg,4,9)
+  val dut = AxisFifoRam(fcfg)
+  val io = new Bundle {
+    val d = slave(Axis(acfg,4))
+    val q = master(Axis(acfg,4))
+    val c = in Bool
+    val s = out UInt(10 bits)
+    val o = out UInt(10 bits)
+  } 
+  io.d >> dut.io.d
+  dut.io.q >> io.q
+  dut.io.clear := io.c
+  io.s := dut.state.space
+  io.o := dut.state.occupied 
+}
 
+object MyFifoSim {
+  def main(args: Array[String]) {
+    SimConfig.withWave.doSim(new fifodut){dut =>
+      //Fork a process to generate the reset and the clock on the dut
+      dut.clockDomain.forkStimulus(period = 10)
+
+      var idx = 0
+
+      dut.io.c #= true
+      dut.clockDomain.waitRisingEdge()
+
+      while(idx<1024) {
+        dut.io.c #= false
+        dut.io.d.tdata #= 0
+        
+      }
 //Generate the MyTopLevel's Verilog
 object MyDutVerilog {
   def main(args: Array[String]) {
