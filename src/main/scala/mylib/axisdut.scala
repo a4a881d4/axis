@@ -61,9 +61,9 @@ object MyFifoSim {
       dut.io.c #= true
       dut.clockDomain.waitRisingEdge()
 
-      while(idx<1024) {
+      while(idx<520) {
         dut.io.c #= false
-        dut.io.d.tdata #= 0
+        dut.io.d.tdata #= idx
         dut.io.d.tvalid #= true
         dut.io.d.tlast #= false
         dut.io.q.tready #= false
@@ -75,6 +75,23 @@ object MyFifoSim {
         val ready = dut.io.d.tready.toBoolean
         println(s"$idx,$s,$o,$wa,$ra,$ready")
         idx += 1       
+      }
+      while(idx<1040) {
+        dut.io.c #= false
+        dut.io.d.tdata #= idx
+        dut.io.d.tvalid #= false
+        dut.io.d.tlast #= false
+        dut.io.q.tready #= true
+        dut.clockDomain.waitRisingEdge()
+        val s = dut.io.s.toInt
+        val o = dut.io.o.toInt
+        val wa = dut.io.wa.toInt
+        val ra = dut.io.ra.toInt
+        val ready = dut.io.d.tready.toBoolean
+        val valid = dut.io.q.tvalid.toBoolean
+        val data = dut.io.q.tdata.toBigInt
+        println(s"$idx,$s,$o,$wa,$ra,$ready,$valid,$data")
+        idx += 1  
       }
     }
   }
