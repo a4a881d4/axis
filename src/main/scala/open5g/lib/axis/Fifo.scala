@@ -24,8 +24,8 @@ trait AxisFifoIO {
     val occupied = out UInt(cfg.sSize bits)
   } else null
   val addr = if (cfg.useAddr) new Bundle {
-    val read  = out UInt(cfg.sSize bits)
-    val write = out UInt(cfg.sSize bits)
+    val read  = out UInt(cfg.wSize bits)
+    val write = out UInt(cfg.wSize bits)
   } else null
 }
 
@@ -100,7 +100,7 @@ case class AxisFifoRam(cfg:AxisFifoConfig)  extends Component with AxisFifoIO {
   val full = Bool
   val empty = Bool
 
-  val write     = io.d.tvalid & buf.tready
+  val write     = io.d.tvalid & (!full)
   val read_int  = !empty & buf.tready
   val read      = io.q.tready & o.tvalid
   val wr_addr   = Reg(UInt(cfg.wSize bits)) init 0

@@ -29,7 +29,7 @@ class axisB extends Component {
 
 class fifodut extends Component {
   val acfg = AxisConfig(64)
-  val fcfg = AxisFifoConfig(acfg,4,9)
+  val fcfg = AxisFifoConfig(acfg,4,9,useAddr=true)
   val fifo = AxisFifoRam(fcfg)
   val io = new Bundle {
     val d = slave(Axis(acfg,4))
@@ -37,6 +37,8 @@ class fifodut extends Component {
     val c = in Bool
     val s = out UInt(10 bits)
     val o = out UInt(10 bits)
+    val wa = out UInt(9 bits)
+    val ra = out UInt(9 bits)
   }
   io.d >> fifo.io.d
   fifo.io.q >> io.q
@@ -44,6 +46,8 @@ class fifodut extends Component {
   fifo.io.clear := io.c
   io.s := fifo.state.space
   io.o := fifo.state.occupied
+  io.wa := fifo.addr.write
+  io.ra := fifo.addr.read
 }
 
 object MyFifoSim {
@@ -66,7 +70,10 @@ object MyFifoSim {
         dut.clockDomain.waitRisingEdge()
         val s = dut.io.s.toInt
         val o = dut.io.o.toInt
-        println(s"$idx,$s,$o")
+        val wa = dut.io.wa.toInt
+        val ra = dut.io.ra.toInt
+        val ready = dut.io.d.tready.toBoolean
+        println(s"$idx,$s,$o,$wa,$ra,$ready")
         idx += 1       
       }
     }
