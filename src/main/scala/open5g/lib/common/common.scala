@@ -22,3 +22,8 @@ case class ShiftReg(width:Int,deep:Int) extends Component {
   io.q := q
   io.s := mem(deep)
 }
+
+case class Constant(value:Int,size:Int) {
+  def toBits = B(value,size bits)
+  def is(b:Bits) = b === toBits
+}
