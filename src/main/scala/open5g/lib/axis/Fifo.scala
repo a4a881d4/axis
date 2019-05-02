@@ -169,37 +169,16 @@ case class AxisFifoRam(cfg:AxisFifoConfig)  extends Component with AxisFifoIO {
   buf.tready := io.q.tready | o.tvalid
   o drive io.q
 
-  val dataMem = Mem(Bits(cfg.acfg.dataWidth bits), (1<<cfg.wSize))
+  val dataMem = Mem(Bits(io.d.ExtLen bits), (1<<cfg.wSize))
   dataMem.write(
       enable  = write
     , address = wr_addr
-    , data    = io.d.tdata
+    , data    = io.d.ExtBits
     )
-  buf.tdata := dataMem.readSync(
+  buf.FromBits(dataMem.readSync(
       enable = (read_state === U(1))|read_int
-    , address = rd_addr)
+    , address = rd_addr))
   
-  val lastMem = Mem(Bits(1 bits), (1<<cfg.wSize))
-  lastMem.write(
-      enable  = write
-    , address = wr_addr
-    , data    = io.d.tlast.asBits
-    )
-  buf.tlast := lastMem.readSync(
-      enable = (read_state === U(1))|read_int
-    , address = rd_addr)(0)
-  
-  if(cfg.userWidth>=0) {
-    val userMem = Mem(Bits(cfg.userWidth bits), (1<<cfg.wSize))
-    userMem.write(
-        enable  = write
-      , address = wr_addr
-      , data    = io.d.tuser
-      )
-    buf.tuser := userMem.readSync(
-        enable = (read_state === U(1))|read_int
-      , address = rd_addr)
-  }
   if(cfg.useState) {
 
     val space = Reg(UInt(cfg.sSize bits)) init cfg.nSize
@@ -224,3 +203,4 @@ case class AxisFifoRam(cfg:AxisFifoConfig)  extends Component with AxisFifoIO {
     addr.write := wr_addr
   }
 }
+
