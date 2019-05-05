@@ -103,3 +103,36 @@ object MyDutVerilog {
   }
 }
 
+import spinal.lib.cpu.riscv.impl._
+
+object InstructionCacheMain{
+  class TopLevel extends Component{
+    implicit val p = InstructionCacheConfig(
+      cacheSize =4096,
+      bytePerLine =32,
+      wayCount = 1,
+      wrappedMemAccess = true,
+      addressWidth = 32,
+      cpuDataWidth = 32,
+      memDataWidth = 32)
+    val io = new Bundle{
+      val cpu = slave(InstructionCacheCpuBus())
+      val mem = master(InstructionCacheMemBus())
+      val flush = slave(InstructionCacheFlushBus())
+    }
+    val cache = new InstructionCache()(p)
+    cache.io.flush <> io.flush
+    cache.io.cpu.cmd <-< io.cpu.cmd
+    cache.io.mem.cmd >-> io.mem.cmd
+    cache.io.mem.rsp <-< io.mem.rsp
+    cache.io.cpu.rsp >-> io.cpu.rsp
+//    when(cache.io.cpu.rsp.valid){
+//      cache.io.cpu.cmd.valid := RegNext(cache.io.cpu.cmd.valid)
+//      cache.io.cpu.cmd.address := RegNext(cache.io.cpu.cmd.address)
+//    }
+  }
+  def main(args: Array[String]) {
+
+    SpinalVerilog(new TopLevel)
+  }
+}
