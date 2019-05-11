@@ -76,17 +76,17 @@ case class TSPConfig( NThread : Int,
 }
 
 object TSPConfig {
-  def default = TSPConfig(32,16,72,72,9,16,9)
+  def default = TSPConfig(32,16,72,72,9,16)
 }
 
 class FlagIO(cfg:TSPConfig) extends Bundle with IMasterSlave {
-  val carry : Bool
-  val zero  : Bool
-  val state : Bits(3 bits)
-  val gpio  : Bits(3 bits)
-  val other : Bits(cfg.FWidth-8 bits)
+  val carry = Bool
+  val zero  = Bool
+  val state = Bits(3 bits)
+  val gpio  = Bits(3 bits)
+  val other = Bits(cfg.FWidth-8 bits)
   def asMaster = {
-    out(carray,zero,state,gpio,other)
+    out(carry,zero,state,gpio,other)
   }
 }
 
@@ -94,8 +94,8 @@ class RegIO(cfg:TSPConfig) extends Bundle with IMasterSlave {
   val pc = UInt(cfg.IAWidth bits)
   val state = Vec(UInt(cfg.SWidth bits),3)
   val flag  = new FlagIO(cfg)
-  def asMater = {
-    out(pc,stage,flag)
+  def asMaster = {
+    out(pc,state,flag)
   }
 }
 
@@ -105,7 +105,7 @@ class Instruction(cfg:TSPConfig) extends Bundle with IMasterSlave {
   val exec   = Bool
   val pluged = Bits(cfg.PWidth bits)
   def asMaster = {
-    out(auto,mask,exex,pluged)
+    out(auto,mask,exec,pluged)
   }
 }
 

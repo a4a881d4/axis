@@ -104,9 +104,9 @@ import open5g.lib.common.Constant
 case class HeapItemConfig(  KeyWidth    : Int,
                             ValueWidth  : Int
                         )
-case class HeapItem(cfg:HeapItemConfig) extends Bundle with IMasterSlave {
-  val key = UInt(cfg.KeyWidth bits)
-  val value = UInt(cfg.ValueWidth bits)
+case class HeapItem(cfg:HeapConfig) extends Bundle with IMasterSlave {
+  val key = UInt(cfg.ItemCfg.KeyWidth bits)
+  val value = UInt(cfg.ItemCfg.ValueWidth bits)
   def asMaster : Unit = {
     out(key,value)
   }
@@ -121,74 +121,64 @@ case class HeapConfig(  MemDeep : Int,
   def AWidth = log2Up(MemDeep)
 }
 
-case class heap(  cfg    : HeapConfig,
-                  prefix : Constant) {
+case class heap(cfg : HeapConfig) extends Component {
   val io = new Bundle {
-    val insert = slave  Stream(HeapItem(cfg.ItemCfg))
-    val output = master Stream(HeapItem(cfg.ItemCfg))
-    val now    = UInt(cfg.ItemCfg.KeyWidth bits)
-    val clear  = Bool
-    val size   = UInt(cfg.AWidth bits)
-  }
-  val size  = Reg(UInt(cfg.AWidth bits)) init(0)
-  val index = Reg(UInt(cfg.AWidth bits)) init(0)
-  io.size := size - 1
-  val raddr = UInt(cfg.AWidth bits)
-  val ren   = Bool
-  val ready = RegInit(False)
-
-  output.ready := ready
-  when(output.fire) {
-    ready := False
-  } otherwise {
-    when(fsm.isActive(sDownReadAddr)) {
-
-    }
+    val insert = slave  Stream(HeapItem(cfg))
+//    val output = master Stream(HeapItem(cfg))
+    val now    = in UInt(cfg.ItemCfg.KeyWidth bits)
+    val clear  = in Bool
+    val size   = out UInt(cfg.AWidth bits)
   }
 
-  val fsm = new StateMachine {
-    val insertEnd := RegInit(False)
-    val outputEnd := RegInit(False)
-    val insertReady := RegInit(False)
-    val sClear : State = new State with EntryPoint {
-      whenIsActive {
-        size := U(0)
-        goto(sInsert)
-      }
+
+  val up = UP(cfg)
+  val hm = HeapMem(cfg,true)
+  
+
+  up.io.insert << io.insert
+  
+  hm.io.ud := True
+  
+  hm.io.rau := up.io.ra
+  hm.io.wdu := up.io.wd
+  hm.io.wau := up.io.wa
+  hm.io.wenu := up.io.wen
+  up.io.rao := hm.io.rao
+  up.io.rd := hm.io.rout
+
+  val size = Reg(UInt(cfg.AWidth bits)) init(0)
+
+  when(io.clear) {
+    size := U(0)
+  }.elsewhen(up.io.busy) {
+    size := up.io.sizeo
+  }
+
+  up.io.sizei := size
+  up.io.upen := !io.clear
+  io.size := size
+
+  val _debug = true
+  if(_debug) {
+    val debug = new Bundle {
+      val dra  = in  UInt(cfg.AWidth bits) 
+      val ddo  = master(HeapItem(cfg)) 
     }
-    val sInsert : State = new State {
-      whenIsActive {
-        when(size < cfg.MemDeep-2 && insert.valid) {
-          insertReady := True
-          insertEnd   := False
-          goto(sUpFirst)
-        } otherwise {
-          goto(sOutput)
-        }
-      }
-    }
-    val sUpFirst : State = new State {
-      whenIsActive {
-        size := size + 1
-        insert.ready := True
-        readAddr 
-      }
-    }
-    val sOutput : State = new State {
-      whenIsActive {
-        when(io.clear) {
-          goto(sClear)
-        } otherwise {
-          index := U(1)
-          readen:= Ture
-          goto(sDownReadAddr)
-        }
-      }
-    }
+    hm.io.dra := debug.dra
+    debug.ddo := hm.io.ddo
+
+    /* down */
+    hm.io.wdd := up.io.wd
+    hm.io.wad := up.io.wa
+    hm.io.wend := up.io.wen
+    
+    hm.io.rad := up.io.ra
+  
+  }
 }
 
-case class HeapMem(cfg:HeapConfig) {
-  val io = {
+case class HeapMem(cfg:HeapConfig,debug:Boolean=false) extends Component {
+  val io = new Bundle{
     val rout = master(HeapItem(cfg))
     val left = master(HeapItem(cfg))
     val right= master(HeapItem(cfg))
@@ -207,6 +197,9 @@ case class HeapMem(cfg:HeapConfig) {
     val wend = in  Bool
 
     val ud   = in  Bool
+
+    val dra  = if(debug) in  UInt(cfg.AWidth bits) else null
+    val ddo  = if(debug) master(HeapItem(cfg)) else null
   }
 
   val HLeft  = Mem(HeapItem(cfg),cfg.MemDeep/2)
@@ -217,17 +210,17 @@ case class HeapMem(cfg:HeapConfig) {
   val left   = HeapItem(cfg)
   val right  = HeapItem(cfg)
   val wd     = HeapItem(cfg)
-
-  ra  := Mux(ud,io.rau,io.rad)
-  wa  := Mux(ud,io.wau,io.wad)
-  wen := Mux(ud,io.wenu,io.wend)
-  wd  := Mux(ud,io.wdu,io.wdd)
+  val rao    = Reg(UInt(cfg.AWidth bits)) init(0)
+  
+  ra  := Mux(io.ud,io.rau,io.rad)
+  wa  := Mux(io.ud,io.wau,io.wad)
+  wen := Mux(io.ud,io.wenu,io.wend)
+  wd  := Mux(io.ud,io.wdu,io.wdd)
 
   io.left  := left
   io.right := right
   io.rout  := Mux(rao(0),right,left)
 
-  val rao := Reg(UInt(cfg.AWidth bits)) init(0)
   rao     := ra
   io.rao  := rao
 
@@ -247,20 +240,90 @@ case class HeapMem(cfg:HeapConfig) {
   right := HRight.readSync(
     address = ra(ra.high downto 1)
     )
+  if(debug) {
+    val da0 = Reg(Bool)
+    da0 := io.dra(0)
+    io.ddo := Mux(da0,HRight.readSync(address=io.dra(io.dra.high downto 1)),
+      HLeft.readSync(address=io.dra(io.dra.high downto 1)))
+  }
 }
 
 case class UP(cfg:HeapConfig) extends Component {
   val io = new Bundle {
-    val insert = slave(HeapItem(cfg))
-    val push   = in Bool
+  
+    val insert = slave Stream(HeapItem(cfg))
+    
+    val ra     = out UInt(cfg.AWidth bits)
+    val rao    = in UInt(cfg.AWidth bits)
+    val rd     = slave(HeapItem(cfg))
+
+    val wa     = out UInt(cfg.AWidth bits)
+    val wen    = out Bool
+    val wd     = master(HeapItem(cfg))
+
+    val sizeo  = out UInt(cfg.AWidth bits)
+    val sizei  = in  UInt(cfg.AWidth bits)
+  
     val busy   = out Bool
+    val upen   = in  Bool
+  }
+  
+  val busy = RegInit(False)
+  val ra = Reg(UInt(cfg.AWidth bits)) init(0)
+  val wa = Reg(UInt(cfg.AWidth bits)) init(0)
+  val lra = Reg(UInt(cfg.AWidth bits)) init(0)
+  val wen = RegInit(False)
+  val wd = Reg(HeapItem(cfg))
+  val size = Reg(UInt(cfg.AWidth bits)) init(0)
+  val data = Reg(HeapItem(cfg))
+  val s1 = UInt(cfg.AWidth bits)
+  val first = RegInit(False)
 
-    val ra  = out UInt(cfg.AWidth bits)
-    val rar = in UInt(cfg.AWidth bits)
-    val rd  = slave(HeapItem(cfg))
+  s1 := size + U(1)
+  io.busy := busy
+  io.sizeo := size
 
-    val wa  = out UInt(cfg.AWidth bits)
-    val wen = out Bool
-    val wd  = master(HeapItem(cfg))
+  io.ra := ra
+  io.wa := wa
+  io.wen := wen
+  io.wd := wd
+
+  when(!busy) {
+    size := io.sizei
+  } otherwise {
+    when(io.insert.fire) {
+      size := s1
+    }
+  }
+
+  io.insert.ready := !busy && (size < cfg.MemDeep-2) && io.upen
+  when(io.insert.fire) {
+    busy := True
+    data := io.insert.payload
+    lra  := s1
+    ra   := s1 >> U(1)
+    wen  := False
+    first:= True 
+  }.elsewhen(busy) {
+    ra := io.rao >> U(1) 
+    when(first) {
+      first := False
+      wen := False
+    } otherwise {
+      wen := True
+      wa  := lra
+      lra := io.rao 
+      when(data < io.rd) {
+        wd := io.rd
+      } otherwise {
+        wd := data
+      }
+      when(data < io.rd || lra < 2) {
+        busy := False
+      }
+    }
+  }.otherwise {
+    wen := False
   }
 }
+
