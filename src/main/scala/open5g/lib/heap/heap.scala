@@ -34,9 +34,10 @@ case class HeapConfig(  MemDeep : Int,
     r.lr := x(0)
     r
   }
-  def cmp(a:UInt,b:UInt) : Bool {
-    val r = b - a
-    !r(cfg.ItemCfg.KeyWidth-1)
+  def cmp(a:UInt,b:UInt) : Bool = {
+    val r = UInt(ItemCfg.KeyWidth bits)
+    r := b - a
+    !r(ItemCfg.KeyWidth-1)
   }  
 }
 
@@ -50,6 +51,7 @@ case class BAddress(cfg:HeapConfig) extends Bundle with IMasterSlave {
     val r = UInt(cfg.AWidth bits)
     r(cfg.AWidth-1 downto 1) := address
     r(0) := lr
+    r
   }
 }
 
@@ -67,10 +69,10 @@ case class HeapMem(cfg:HeapConfig) extends Component {
 
     val wd    = slave(HeapItem(cfg))
 
-    val lr    = Bool
-    val dl    = Bool
-    val dr    = Bool
-    val dd    = Bool
+    val lr    = out Bool
+    val dl    = out Bool
+    val dr    = out Bool
+    val dd    = out Bool
   }
   val HRight = Mem(HeapItem(cfg),cfg.MemDeep/2)
   val HLeft  = Mem(HeapItem(cfg),cfg.MemDeep/2)
@@ -82,29 +84,40 @@ case class HeapMem(cfg:HeapConfig) extends Component {
   HRight.write(
     address = io.wa.address,
     enable  = io.wa.lr && io.wen,
-    data    = io.rd)
+    data    = io.wd)
   
   HLeft.write(
     address = io.wa.address,
     enable  = !io.wa.lr && io.wen,
-    data    = io.rd)
+    data    = io.wd)
   
-  left      := HLeft.read(address = io.ra.address)
-  right     := HRight.read(address = io.ra.address)
+  left      := HLeft.readAsync(address = io.ra.address)
+  right     := HRight.readAsync(address = io.ra.address)
 
-  io.lr     := left <= right
-  dl        := data <= left
-  dr        := data <= right
+  io.lr     := (left    <= right)
+  dl        := (io.data <= left)
+  dr        := (io.data <= right)
   io.dd     := Mux(io.ra.lr,dr,dl)
   io.dl     := dl
   io.dr     := dr 
-  io.rdata  := Mux(io.ra.lr,right,left)
+  io.rd     := Mux(io.ra.lr,right,left)
   io.left   := left
   io.right  := right
 }
 
 object HeapState extends SpinalEnum {
-  val sIdle, sCheck, sPreUp, sUp, sUpDone, sPreDown, sDown, sDownDone = newElement()
+  val sIdle, sCheck, sCheckDone, sPreUp, sUp, sUpDone, sPreDown, sDown, sDownDone = newElement()
+  defaultEncoding = SpinalEnumEncoding("staticEncoding")(
+    sIdle       -> 0,
+    sCheck      -> 1,
+    sCheckDone  -> 2,
+    sPreUp      -> 3,
+    sUp         -> 4,
+    sUpDone     -> 5,
+    sPreDown    -> 6,
+    sDown       -> 7,
+    sDownDone   -> 8
+    )
 }
 
 case class heap(cfg:HeapConfig) extends Component {
@@ -115,7 +128,7 @@ case class heap(cfg:HeapConfig) extends Component {
     val output = master Stream(HeapItem(cfg))
     val insert = slave Stream(HeapItem(cfg))
     val now    = in UInt(cfg.ItemCfg.KeyWidth bits)
-    val state  = out Bits(3 bits)
+    val state  = out Bits(4 bits)
   }
 
   val size    = Reg(UInt(cfg.AWidth bits)) init(0)
@@ -130,51 +143,55 @@ case class heap(cfg:HeapConfig) extends Component {
   val wa      = BAddress(cfg)
   val wen     = Bool
   val wd      = HeapItem(cfg)
+  val rd      = HeapItem(cfg)
 
   val hm      = HeapMem(cfg)
   
   io.output.valid := oValid
   io.insert.ready := upReady
   io.state := state.asBits
+  io.size := size
+  io.output.payload := output
 
   hm.io.wd        := wd
   hm.io.ra        := ra
   hm.io.wa        := wa
   hm.io.wen       := wen
   hm.io.data      := data
+  rd              := hm.io.rd
 
   import HeapState._
   /* read address logic */
   switch(state) {
-    is(sCheck)    ra := cfg.BA(U(1,cfg.AWidth bits)) 
-    is(sPreDown)  ra := cfg.BA(size)
-    is(sDown)     ra := addr
-    is(sUp)       ra := cfg.BA(addr.address)
-    default       ra := cfg.BA(U(0,cfg,AWidth bits))
+    is(sCheck)    {ra := cfg.BA(U(1,cfg.AWidth bits))} 
+    is(sPreDown)  {ra := cfg.BA(size)}
+    is(sDown)     {ra := addr}
+    is(sUp)       {ra := cfg.BA(addr.address)}
+    default       {ra := cfg.BA(U(0,cfg.AWidth bits))}
   }
   /* write address logic */
   switch(state) {
-    is(sDown) wa := cfg.BA(addr.address)
-    is(sUp)   wa := addr
-    default   wa := cfg.BA(U(0,cfg,AWidth bits))
+    is(sDown) {wa := cfg.BA(addr.address)}
+    is(sUp)   {wa := addr}
+    default   {wa := cfg.BA(U(0,cfg.AWidth bits))}
   }
   /* write enable logic */
   switch(state) {
-    is(sDown) wen := True
-    is(sUp)   wen := True    
-    default   wen := False
+    is(sDown) {wen := True}
+    is(sUp)   {wen := True}   
+    default   {wen := False}
   }
 
   switch(state) {
-    is(sIdle) io.busy := False
-    default   io.busy := True
+    is(sIdle) {io.busy := False}
+    default   {io.busy := True}
   }
 
   when(io.clear) {
     size := U(0)
     state := sIdle
     upReady := False
-    wd.zeros
+    wd.zero
   } otherwise {
     switch(state) {
       is(sIdle) {
@@ -214,24 +231,16 @@ case class heap(cfg:HeapConfig) extends Component {
         wd.zero
       }
       is(sDown) {
-        val next   = UInt(cfg.AWidth bits)
-        val sleft  = BAddress(cfg)
-        val sright = BAddress(cfg)
-        sleft.address := ra.address
-        sleft.lr := False
-        sright.address := ra.address
-        sright.lr := True
-        when(!hm.io.dl && (sleft.asAddr <= size)) {
-          next := sleft.asAddr
+        when(!hm.io.dl && (ra.address * 2 <= size)) {
+          addr.address := ra.address |<< 1
           wd := hm.io.left
-        }.elsewhen(!hm.io.dr && (sright.asAddr <= size)) {
-          next := sright.asAddr
+        }.elsewhen(!hm.io.dr && (ra.address * 2 + 1 <= size)) {
+          addr.address := (ra.address |<< 1) + 1
           wd := hm.io.right
         }.otherwise {
           wd := data
           state := sDownDone
         }
-        addr.address := next(cfg.Awidth-2 downto 0)
       }
       is(sDownDone) {
         state := sIdle
@@ -242,7 +251,7 @@ case class heap(cfg:HeapConfig) extends Component {
           data    := io.insert.payload
           upReady := False
           size    := size + 1
-          addr    := cfg.BA(U(size+1,cfg.AWidth bits))
+          addr    := cfg.BA(size + 1)
           state   := sUp 
         }
         wd.zero
@@ -261,9 +270,6 @@ case class heap(cfg:HeapConfig) extends Component {
       }
       is(sUpDone) {
         state := sIdle
-        wd.zero
-      }
-      default {
         wd.zero
       }
     }
