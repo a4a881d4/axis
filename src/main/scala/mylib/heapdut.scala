@@ -20,15 +20,23 @@ object MyHeapSim {
       dut.io.clear #= true
       dut.clockDomain.waitRisingEdge()
       dut.io.insert.valid #= true
-      while(idx<520) {
+      while(idx<20) {
         dut.io.clear #= false
-        dut.io.insert.payload.key #= idx
+        dut.io.insert.payload.key #= 512-idx
         dut.io.insert.value #= 0
         dut.clockDomain.waitRisingEdge()
         val ready = dut.io.insert.ready.toBoolean
         val size = dut.io.size.toInt
-        println(s"$idx,$ready,$size")
-        idx += 1
+        val wa = dut.debug.wa.toInt
+        val ra = dut.debug.ra.toInt
+        val wen = dut.debug.en.toBoolean
+        val rd = dut.debug.rd.key.toInt
+        val wd = dut.debug.wd.key.toInt
+        val id = dut.debug.id.key.toInt
+        println(s"$idx,$ready,$size,id=$id,ra=$ra,rd=$rd,$wen,wa=$wa,wd=$wd")
+        if(ready) {
+          idx += 1
+        }
       }
     }
   }
