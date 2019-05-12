@@ -4,15 +4,51 @@ import spinal.core._
 import spinal.lib._
 import spinal.sim._
 import spinal.core.sim._
-
+import scala.util.Random
 import open5g.lib.heap._
 import open5g.lib.common.SignalFormat
+object MyHeapRandom {
+  def main(srgs: Array[String]) {
+    val config = HeapConfig(64,HeapItemConfig(24,12),16)
+    SimConfig.withWave.doSim(new heap(config,false)){dut =>
+      var idx = 0
+      dut.clockDomain.forkStimulus(period = 10)
+      dut.io.clear #= true
+      dut.clockDomain.waitRisingEdge()
+      dut.io.clear #= false
+      dut.io.insert.valid #= false
+      while(idx<65536) {
+        dut.io.output.ready #= true
+        dut.io.now #= idx
+        if(!dut.io.insert.valid.toBoolean && Random.nextInt(100)<5) {
+          val insertD = idx + Random.nextInt(1024) 
+          dut.io.insert.payload.key #= insertD
+          dut.io.insert.payload.value #= 0
+          dut.io.insert.valid #= true
+        }
+        dut.clockDomain.waitRisingEdge()
+        val size = dut.io.size.toInt
+        val state = dut.io.state.toInt
+        if(dut.io.insert.valid.toBoolean && dut.io.insert.ready.toBoolean) {
+          dut.io.insert.valid #= false
+          val v = dut.io.insert.payload.key.toInt
+          println(s"[$idx:$size($state)] insert: $v")
+        }
+        if(dut.io.output.valid.toBoolean) {
+          val v = dut.io.output.key.toInt
+          println(s"[$idx:$size($state)] pop $v delay = ${idx-v}")
+        }
+        idx += 1
+      }
+    }
+  }
+}
 
 object MyHeapSim {
   def toInt(x:Boolean) = if(x) 1 else 0
   def main(args: Array[String]) {
 
-    val config = HeapConfig(64,HeapItemConfig(24,12))
+    val config = HeapConfig(64,HeapItemConfig(24,12),16)
     val f = SignalFormat()
     f.add("idx",5)
     f.add("state",4)
@@ -99,7 +135,7 @@ object MyHeapSim {
 
 object MyHeapGen {
   def main(args: Array[String]) {
-    val config = HeapConfig(64,HeapItemConfig(24,12))
+    val config = HeapConfig(64,HeapItemConfig(24,12),16)
     SpinalVerilog(new heap(config,false))
   }
 } 

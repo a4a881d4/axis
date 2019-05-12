@@ -22,9 +22,11 @@ case class HeapItem(cfg:HeapConfig) extends Bundle with IMasterSlave {
   }
 }
 
-case class HeapConfig(  MemDeep : Int,
-                        ItemCfg : HeapItemConfig
+case class HeapConfig(  MemDeep    : Int,
+                        ItemCfg    : HeapItemConfig,
+                        insertFifo : Int
                         ) {
+  def hasFifo = (insertFifo > 0)
   def AWidth = log2Up(MemDeep)
   def BA(x:UInt) : BAddress = {
     val r = BAddress(this)
@@ -106,7 +108,7 @@ case class HeapMem(cfg:HeapConfig) extends Component {
 }
 
 object HeapState extends SpinalEnum {
-  val sIdle, sCheck, sCheckDone, sPreUp, sUp, sUpDone, sPreDown, sDown, sDownDone = newElement()
+  val sIdle, sCheck, sCheckDone, sPreUp, sUp, sUpDone, sPreDown, sDown, sDownDone, sWriteLast = newElement()
   defaultEncoding = SpinalEnumEncoding("staticEncoding")(
     sIdle       -> 0,
     sCheck      -> 1,
@@ -116,7 +118,8 @@ object HeapState extends SpinalEnum {
     sUpDone     -> 5,
     sPreDown    -> 6,
     sDown       -> 7,
-    sDownDone   -> 8
+    sDownDone   -> 8,
+    sWriteLast  -> 9
     )
 }
 
@@ -132,12 +135,13 @@ case class heap(cfg:HeapConfig,_debug:Boolean = false) extends Component {
   }
 
   val size    = Reg(UInt(cfg.AWidth bits)) init(0)
-  val data    = Reg(HeapItem(cfg))
-  val state   = Reg(HeapState())
+  val data    = Reg(HeapItem(cfg)) 
+  val state   = Reg(HeapState()) 
   val upReady = RegInit(False)
   val oValid  = RegInit(False)
-  val output  = Reg(HeapItem(cfg))
-  val addr    = Reg(BAddress(cfg))
+  val output  = Reg(HeapItem(cfg)) 
+  val addr    = Reg(BAddress(cfg)) 
+  val now     = Reg(UInt(cfg.ItemCfg.KeyWidth bits)) init(0)
 
   val ra      = BAddress(cfg)
   val wa      = BAddress(cfg)
@@ -146,12 +150,24 @@ case class heap(cfg:HeapConfig,_debug:Boolean = false) extends Component {
   val rd      = HeapItem(cfg)
 
   val hm      = HeapMem(cfg)
+
+  val insert  = Stream(HeapItem(cfg))
+
+  if(cfg.hasFifo) {
+    val fifo = StreamFifo( dataType = HeapItem(cfg), depth = cfg.insertFifo)
+    fifo.io.push << io.insert
+    fifo.io.pop >> insert
+  } else {
+    insert << io.insert
+  }
   
   io.output.valid := oValid
-  io.insert.ready := upReady
+  insert.ready := upReady
   io.state := state.asBits
   io.size := size
   io.output.payload := output
+  
+  now             := io.now
 
   hm.io.wd        := wd
   hm.io.ra        := ra
@@ -172,6 +188,7 @@ case class heap(cfg:HeapConfig,_debug:Boolean = false) extends Component {
   /* write address logic */
   switch(state) {
     is(sDown) {wa := cfg.BA(addr.address)}
+    is(sWriteLast) {wa := addr}
     is(sUp)   {wa := addr}
     default   {wa := cfg.BA(U(0,cfg.AWidth bits))}
   }
@@ -197,21 +214,21 @@ case class heap(cfg:HeapConfig,_debug:Boolean = false) extends Component {
       is(sIdle) {
         when(io.output.ready && size > 0) {
           state := sCheck
-        }.elsewhen(io.insert.valid && size < cfg.MemDeep-2) {
+        }.elsewhen(insert.valid && size < cfg.MemDeep-2) {
           state := sPreUp
           upReady := True
         }
         wd.zero
       }
       is(sCheck) {
-        when(cfg.cmp(rd.key,io.now)) {
+        when(cfg.cmp(rd.key,now)) {
           output := rd
           oValid := True
           state  := sCheckDone
-        }.elsewhen(io.insert.valid && size < cfg.MemDeep-2) {
+        }.elsewhen(insert.valid && size < cfg.MemDeep-2) {
           state := sPreUp
           upReady := True
-        }.otherwise {
+        }.elsewhen(!io.output.ready) {
           state := sIdle
         }
         wd.zero
@@ -231,24 +248,38 @@ case class heap(cfg:HeapConfig,_debug:Boolean = false) extends Component {
         wd.zero
       }
       is(sDown) {
-        when(!hm.io.dl && !hm.io.rl && (ra.address * 2 <= size)) {
-          addr.address := ra.address |<< 1
+        when(!hm.io.dl && !hm.io.rl && (ra.address * 2 < size)) {
           wd := hm.io.left
-        }.elsewhen(!hm.io.dr && (ra.address * 2 + 1 <= size)) {
-          addr.address := (ra.address |<< 1) + 1
+          when(ra.address.msb) {
+            state := sWriteLast
+            addr := cfg.BA(ra.address |<< 1)
+          } otherwise {
+            addr.address := ra.address |<< 1
+          }
+        }.elsewhen(!hm.io.dr && (ra.address * 2 + 1 < size)) {
           wd := hm.io.right
+          when(ra.address.msb) {
+            state := sWriteLast
+            addr := cfg.BA((ra.address |<< 1) + 1)
+          } otherwise {
+            addr.address := (ra.address |<< 1) + 1
+          }
         }.otherwise {
           wd := data
           state := sDownDone
         }
+      }
+      is(sWriteLast) {
+        wd := data
+        state := sDownDone
       }
       is(sDownDone) {
         state := sIdle
         wd.zero
       }
       is(sPreUp) {
-        when(io.insert.fire) {
-          data    := io.insert.payload
+        when(insert.fire) {
+          data    := insert.payload
           upReady := False
           size    := size + 1
           addr    := cfg.BA(size + 1)
