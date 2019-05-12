@@ -29,11 +29,15 @@ object MyHeapSim {
         val size = dut.io.size.toInt
         val wa = dut.debug.wa.toInt
         val ra = dut.debug.ra.toInt
-        val wen = dut.debug.en.toBoolean
-        val rd = dut.debug.rd.key.toInt
-        val wd = dut.debug.wd.key.toInt
-        val id = dut.debug.id.key.toInt
-        println(s"$idx,$ready,$size,id=$id,ra=$ra,rd=$rd,$wen,wa=$wa,wd=$wd")
+        val wen = dut.debug.wen.toBoolean
+        val rd = dut.debug.rd.toInt
+        val wd = dut.debug.wd.toInt
+        val id = dut.debug.data.toInt
+        val state = dut.io.state.toInt
+        val left = dut.debug.left.toInt
+        val right = dut.debug.right.toInt
+        
+        println(s"$idx,state=$state,$ready,$size,id=$id,wen=$wen,wa=$wa,wd=$wd,ra=$ra,rd=$rd,l=$left,r=$right")
         if(ready) {
           idx += 1
         }

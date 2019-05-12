@@ -110,12 +110,12 @@ object HeapState extends SpinalEnum {
 case class heap(cfg:HeapConfig) extends Component {
   val io = new Bundle {
     val clear  = in  Bool
-    val udout  = out Bool
     val busy   = out Bool
     val size   = out UInt(cfg.AWidth bits)
     val output = master Stream(HeapItem(cfg))
     val insert = slave Stream(HeapItem(cfg))
     val now    = in UInt(cfg.ItemCfg.KeyWidth bits)
+    val state  = out Bits(3 bits)
   }
 
   val size    = Reg(UInt(cfg.AWidth bits)) init(0)
@@ -135,6 +135,7 @@ case class heap(cfg:HeapConfig) extends Component {
   
   io.output.valid := oValid
   io.insert.ready := upReady
+  io.state := state.asBits
 
   hm.io.wd        := wd
   hm.io.ra        := ra
@@ -274,6 +275,8 @@ case class heap(cfg:HeapConfig) extends Component {
     val left  = out UInt(cfg.ItemCfg.KeyWidth bits)
     val right = out UInt(cfg.ItemCfg.KeyWidth bits)
     val data  = out UInt(cfg.ItemCfg.KeyWidth bits)
+    val rd    = out UInt(cfg.ItemCfg.KeyWidth bits)
+    val wd    = out UInt(cfg.ItemCfg.KeyWidth bits)
     val wen   = out Bool
   } else null
 
@@ -282,7 +285,9 @@ case class heap(cfg:HeapConfig) extends Component {
     debug.ra    := ra.asAddr
     debug.left  := hm.io.left.key
     debug.right := hm.io.right.key
-    debug.data  := hm.io.data.key
+    debug.data  := data.key
+    debug.rd    := hm.io.rd.key
+    debug.wd    := wd.key
     debug.wen   := wen
   }
 }
