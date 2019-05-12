@@ -40,7 +40,19 @@ case class HeapConfig(  MemDeep    : Int,
     val r = UInt(ItemCfg.KeyWidth bits)
     r := b - a
     !r(ItemCfg.KeyWidth-1)
-  }  
+  }
+  def left(x:UInt) : UInt = {
+    x << 1
+  }
+  def right(x:UInt) : UInt = {
+    (x << 1) + 1
+  }
+  def rleft(x:UInt) : UInt = {
+    left(x)(x.range)
+  }
+  def rright(x:UInt) : UInt = {
+    right(x)(x.range)
+  }
 }
 
 case class BAddress(cfg:HeapConfig) extends Bundle with IMasterSlave {
@@ -108,7 +120,7 @@ case class HeapMem(cfg:HeapConfig) extends Component {
 }
 
 object HeapState extends SpinalEnum {
-  val sIdle, sCheck, sCheckDone, sPreUp, sUp, sUpDone, sPreDown, sDown, sDownDone, sWriteLast = newElement()
+  val sIdle, sCheck, sCheckDone, sPreUp, sUp, sUpDone, sPreDown, sDown, sDownDone = newElement()
   defaultEncoding = SpinalEnumEncoding("staticEncoding")(
     sIdle       -> 0,
     sCheck      -> 1,
@@ -118,8 +130,7 @@ object HeapState extends SpinalEnum {
     sUpDone     -> 5,
     sPreDown    -> 6,
     sDown       -> 7,
-    sDownDone   -> 8,
-    sWriteLast  -> 9
+    sDownDone   -> 8
     )
 }
 
@@ -140,7 +151,7 @@ case class heap(cfg:HeapConfig,_debug:Boolean = false) extends Component {
   val upReady = RegInit(False)
   val oValid  = RegInit(False)
   val output  = Reg(HeapItem(cfg)) 
-  val addr    = Reg(BAddress(cfg)) 
+  val addr    = Reg(UInt(cfg.AWidth bits)) 
   val now     = Reg(UInt(cfg.ItemCfg.KeyWidth bits)) init(0)
 
   val ra      = BAddress(cfg)
@@ -182,15 +193,14 @@ case class heap(cfg:HeapConfig,_debug:Boolean = false) extends Component {
   switch(state) {
     is(sCheck)    {ra := cfg.BA(U(1,cfg.AWidth bits))} 
     is(sPreDown)  {ra := cfg.BA(size)}
-    is(sDown)     {ra.address := addr.asAddr(cfg.AWidth-2 downto 0);ra.lr := False}
-    is(sUp)       {ra := cfg.BA(addr.address)}
+    is(sDown)     {ra.address := addr(cfg.AWidth-2 downto 0);ra.lr := False}
+    is(sUp)       {ra := cfg.BA(addr(cfg.AWidth-1 downto 1))}
     default       {ra := cfg.BA(U(0,cfg.AWidth bits))}
   }
   /* write address logic */
   switch(state) {
-    is(sDown) {wa := addr/*cfg.BA(addr.address)*/}
-    is(sWriteLast) {wa := addr}
-    is(sUp)   {wa := addr}
+    is(sDown) {wa := cfg.BA(addr)}
+    is(sUp)   {wa := cfg.BA(addr)}
     default   {wa := cfg.BA(U(0,cfg.AWidth bits))}
   }
   /* write enable logic */
@@ -242,40 +252,23 @@ case class heap(cfg:HeapConfig,_debug:Boolean = false) extends Component {
         wd.zero
       }
       is(sPreDown) {
-        data := rd
-        //addr.address := U(1)
-        addr := cfg.BA(U(1,cfg.AWidth bits))
+        data  := rd
+        addr  := U(1) 
+        size  := size - 1
         state := sDown
-        size := size - U(1)
         wd.zero
       }
       is(sDown) {
-        when(!hm.io.dl && !hm.io.rl && (ra.address * 2 <= size)) {
-          wd := hm.io.left
-          addr := cfg.BA(ra.address |<< 1)
-          when(ra.address.msb) {
-            state := sWriteLast
-            // addr := cfg.BA(ra.address |<< 1)
-          } // otherwise {
-          //   addr.address := ra.address |<< 1
-          // }
-        }.elsewhen(!hm.io.dr && (ra.address * 2 + 1 <= size)) {
-          wd := hm.io.right
-          addr := cfg.BA((ra.address |<< 1) + 1)
-          when(ra.address.msb) {
-             state := sWriteLast
-          //   addr := cfg.BA((ra.address |<< 1) + 1)
-          } //otherwise {
-          //   addr.address := (ra.address |<< 1) + 1
-          // }
+        when(!hm.io.dl && !hm.io.rl && cfg.left(addr) <= size) {
+          wd   := hm.io.left
+          addr := cfg.rleft(addr)
+        }.elsewhen(!hm.io.dr && cfg.right(addr) <= size) {
+          wd   := hm.io.right
+          addr :=  cfg.rright(addr)
         }.otherwise {
           wd := data
           state := sDownDone
         }
-      }
-      is(sWriteLast) {
-        wd := data
-        state := sDownDone
       }
       is(sDownDone) {
         state := sIdle
@@ -286,13 +279,13 @@ case class heap(cfg:HeapConfig,_debug:Boolean = false) extends Component {
           data    := insert.payload
           upReady := False
           size    := size + 1
-          addr    := cfg.BA(size + 1)
+          addr    := size + 1
           state   := sUp 
         }
         wd.zero
       }
       is(sUp) {
-        addr := ra
+        addr := ra.asAddr
         when(wa.asAddr === U(1)) {
           wd := data
           state := sUpDone
