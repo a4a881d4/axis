@@ -10,7 +10,7 @@ import open5g.lib.common.SignalFormat
 
 object MyHeapRandom {
   def main(srgs: Array[String]) {
-    val config = HeapConfig(64,HeapItemConfig(24,17),16)
+    val config = HeapConfig(4,HeapItemConfig(24,17),16)
     SimConfig.withWave.doSim(new heap(config,false)){dut =>
       var idx = 0
       val mem = scala.collection.mutable.Map[Int,Int]()
@@ -23,7 +23,7 @@ object MyHeapRandom {
       while(idx<65536) {
         dut.io.output.ready #= true
         dut.io.now #= idx
-        if(!dut.io.insert.valid.toBoolean && Random.nextInt(100)<5) {
+        if(!dut.io.insert.valid.toBoolean && Random.nextInt(100)<10) {
           val insertD = idx + Random.nextInt(1024) 
           dut.io.insert.payload.key #= insertD
           dut.io.insert.payload.value #= idx
@@ -63,7 +63,7 @@ object MyHeapSim {
   def toInt(x:Boolean) = if(x) 1 else 0
   def main(args: Array[String]) {
 
-    val config = HeapConfig(64,HeapItemConfig(24,12),16)
+    val config = HeapConfig(8,HeapItemConfig(24,12),16)
     val f = SignalFormat()
     f.add("idx",5)
     f.add("state",4)
@@ -111,7 +111,7 @@ object MyHeapSim {
       dut.clockDomain.waitRisingEdge()
       dut.io.insert.valid #= true
       dut.io.output.ready #= false
-      while(idx<600) {
+      while(idx<60) {
         dut.io.clear #= false
         dut.io.insert.payload.key #= 512-da
         dut.io.insert.value #= 0
@@ -124,7 +124,7 @@ object MyHeapSim {
       }
       idx = 0
       println(f.TabHead)
-      while(idx<200) {
+      while(idx<80) {
         dut.io.insert.valid #= false
         dut.io.output.ready #= true
         dut.io.now #= 508
@@ -136,7 +136,7 @@ object MyHeapSim {
       dut.clockDomain.waitRisingEdge()
       dut.io.clear #= false
       idx = 0
-      while(idx<200) {
+      while(idx<20) {
         dut.io.insert.valid #= false
         dut.io.output.ready #= true
         dut.io.now #= 508
