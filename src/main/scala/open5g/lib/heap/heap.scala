@@ -120,7 +120,7 @@ object HeapState extends SpinalEnum {
     )
 }
 
-case class heap(cfg:HeapConfig) extends Component {
+case class heap(cfg:HeapConfig,_debug:Boolean = false) extends Component {
   val io = new Bundle {
     val clear  = in  Bool
     val busy   = out Bool
@@ -274,7 +274,7 @@ case class heap(cfg:HeapConfig) extends Component {
       }
     }
   }
-  val _debug = true
+  
   val debug = if(_debug) new Bundle {
     val wa    = out UInt(cfg.AWidth bits)
     val ra    = out UInt(cfg.AWidth bits)

@@ -12,7 +12,7 @@ object MyHeapSim {
   def toInt(x:Boolean) = if(x) 1 else 0
   def main(args: Array[String]) {
 
-    val config = HeapConfig(32,HeapItemConfig(24,12))
+    val config = HeapConfig(64,HeapItemConfig(24,12))
     val f = SignalFormat()
     f.add("idx",5)
     f.add("state",4)
@@ -48,7 +48,7 @@ object MyHeapSim {
       val r = if(idx%10 == 0) f.TabHead + "\n" else ""
       r + f.Tab(toDebug)  
     }
-    SimConfig.withWave.doSim(new heap(config)){dut =>
+    SimConfig.withWave.doSim(new heap(config,true)){dut =>
       //Fork a process to generate the reset and the clock on the dut
       dut.clockDomain.forkStimulus(period = 10)
 
@@ -60,7 +60,7 @@ object MyHeapSim {
       dut.clockDomain.waitRisingEdge()
       dut.io.insert.valid #= true
       dut.io.output.ready #= false
-      while(idx<256) {
+      while(idx<600) {
         dut.io.clear #= false
         dut.io.insert.payload.key #= 512-da
         dut.io.insert.value #= 0
@@ -73,7 +73,7 @@ object MyHeapSim {
       }
       idx = 0
       println(f.TabHead)
-      while(idx<256) {
+      while(idx<600) {
         dut.io.insert.valid #= false
         dut.io.output.ready #= true
         dut.io.now #= 508
@@ -82,5 +82,12 @@ object MyHeapSim {
         idx += 1
       }
     }
+  }
+}
+
+object MyHeapGen {
+  def main(args: Array[String]) {
+    val config = HeapConfig(64,HeapItemConfig(24,12))
+    SpinalVerilog(new heap(config,false))
   }
 } 
