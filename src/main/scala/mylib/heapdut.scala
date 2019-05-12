@@ -7,23 +7,26 @@ import spinal.core.sim._
 import scala.util.Random
 import open5g.lib.heap._
 import open5g.lib.common.SignalFormat
+
 object MyHeapRandom {
   def main(srgs: Array[String]) {
-    val config = HeapConfig(64,HeapItemConfig(24,12),16)
+    val config = HeapConfig(64,HeapItemConfig(24,17),16)
     SimConfig.withWave.doSim(new heap(config,false)){dut =>
       var idx = 0
+      val mem = scala.collection.mutable.Map[Int,Int]()
       dut.clockDomain.forkStimulus(period = 10)
       dut.io.clear #= true
       dut.clockDomain.waitRisingEdge()
       dut.io.clear #= false
       dut.io.insert.valid #= false
+      var mySize = 0
       while(idx<65536) {
         dut.io.output.ready #= true
         dut.io.now #= idx
         if(!dut.io.insert.valid.toBoolean && Random.nextInt(100)<5) {
           val insertD = idx + Random.nextInt(1024) 
           dut.io.insert.payload.key #= insertD
-          dut.io.insert.payload.value #= 0
+          dut.io.insert.payload.value #= idx
           dut.io.insert.valid #= true
         }
         dut.clockDomain.waitRisingEdge()
@@ -31,15 +34,27 @@ object MyHeapRandom {
         val state = dut.io.state.toInt
         if(dut.io.insert.valid.toBoolean && dut.io.insert.ready.toBoolean) {
           dut.io.insert.valid #= false
-          val v = dut.io.insert.payload.key.toInt
-          println(s"[$idx:$size($state)] insert: $v")
+          val k = dut.io.insert.payload.key.toInt
+          val v = dut.io.insert.payload.value.toInt
+          mem(v) = k
+          println(s"[$idx:$size($state)] insert: $k,$v")
+          mySize += 1
         }
         if(dut.io.output.valid.toBoolean) {
-          val v = dut.io.output.key.toInt
-          println(s"[$idx:$size($state)] pop $v delay = ${idx-v}")
+          val k = dut.io.output.key.toInt
+          val v = dut.io.output.value.toInt
+          mySize -= 1
+          println(s"[$idx:$size-$mySize($state)] pop $k($v) delay = ${idx-k}")
+          if(mem.contains(v)) {
+            println(s"find $v,${mem(v)}")
+            mem -= v
+          } else {
+            println(s"not find $v $k "+s"[$idx:$size-$mySize($state)] pop $k($v) delay = ${idx-k}")
+          }
         }
         idx += 1
       }
+      println(s"left:${mem.size}")
     }
   }
 }

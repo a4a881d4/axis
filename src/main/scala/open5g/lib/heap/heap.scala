@@ -181,13 +181,13 @@ case class heap(cfg:HeapConfig,_debug:Boolean = false) extends Component {
   switch(state) {
     is(sCheck)    {ra := cfg.BA(U(1,cfg.AWidth bits))} 
     is(sPreDown)  {ra := cfg.BA(size)}
-    is(sDown)     {ra := addr}
+    is(sDown)     {ra.address := addr.asAddr(cfg.AWidth-2 downto 0);ra.lr := False}
     is(sUp)       {ra := cfg.BA(addr.address)}
     default       {ra := cfg.BA(U(0,cfg.AWidth bits))}
   }
   /* write address logic */
   switch(state) {
-    is(sDown) {wa := cfg.BA(addr.address)}
+    is(sDown) {wa := addr/*cfg.BA(addr.address)*/}
     is(sWriteLast) {wa := addr}
     is(sUp)   {wa := addr}
     default   {wa := cfg.BA(U(0,cfg.AWidth bits))}
@@ -242,7 +242,8 @@ case class heap(cfg:HeapConfig,_debug:Boolean = false) extends Component {
       }
       is(sPreDown) {
         data := rd
-        addr.address := U(1)
+        //addr.address := U(1)
+        addr := cfg.BA(U(1,cfg.AWidth bits))
         state := sDown
         size := size - U(1)
         wd.zero
@@ -250,20 +251,22 @@ case class heap(cfg:HeapConfig,_debug:Boolean = false) extends Component {
       is(sDown) {
         when(!hm.io.dl && !hm.io.rl && (ra.address * 2 < size)) {
           wd := hm.io.left
+          addr := cfg.BA(ra.address |<< 1)
           when(ra.address.msb) {
             state := sWriteLast
-            addr := cfg.BA(ra.address |<< 1)
-          } otherwise {
+            // addr := cfg.BA(ra.address |<< 1)
+          } /*otherwise {
             addr.address := ra.address |<< 1
-          }
+          }*/
         }.elsewhen(!hm.io.dr && (ra.address * 2 + 1 < size)) {
           wd := hm.io.right
+          addr := cfg.BA((ra.address |<< 1) + 1)
           when(ra.address.msb) {
             state := sWriteLast
-            addr := cfg.BA((ra.address |<< 1) + 1)
-          } otherwise {
+            //addr := cfg.BA((ra.address |<< 1) + 1)
+          } /*otherwise {
             addr.address := (ra.address |<< 1) + 1
-          }
+          }*/
         }.otherwise {
           wd := data
           state := sDownDone
