@@ -73,7 +73,19 @@ object MyHeapSim {
       }
       idx = 0
       println(f.TabHead)
-      while(idx<600) {
+      while(idx<200) {
+        dut.io.insert.valid #= false
+        dut.io.output.ready #= true
+        dut.io.now #= 508
+        dut.clockDomain.waitRisingEdge()
+        println(output(dut,idx))
+        idx += 1
+      }
+      dut.io.clear #= true
+      dut.clockDomain.waitRisingEdge()
+      dut.io.clear #= false
+      idx = 0
+      while(idx<200) {
         dut.io.insert.valid #= false
         dut.io.output.ready #= true
         dut.io.now #= 508
