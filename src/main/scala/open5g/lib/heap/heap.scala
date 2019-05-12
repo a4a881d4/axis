@@ -157,6 +157,7 @@ case class heap(cfg:HeapConfig,_debug:Boolean = false) extends Component {
     val fifo = StreamFifo( dataType = HeapItem(cfg), depth = cfg.insertFifo)
     fifo.io.push << io.insert
     fifo.io.pop >> insert
+    fifo.io.flush := io.clear
   } else {
     insert << io.insert
   }
@@ -228,7 +229,7 @@ case class heap(cfg:HeapConfig,_debug:Boolean = false) extends Component {
         }.elsewhen(insert.valid && size < cfg.MemDeep-2) {
           state := sPreUp
           upReady := True
-        }.elsewhen(!io.output.ready) {
+        }.otherwise {
           state := sIdle
         }
         wd.zero
@@ -249,24 +250,24 @@ case class heap(cfg:HeapConfig,_debug:Boolean = false) extends Component {
         wd.zero
       }
       is(sDown) {
-        when(!hm.io.dl && !hm.io.rl && (ra.address * 2 < size)) {
+        when(!hm.io.dl && !hm.io.rl && (ra.address * 2 <= size)) {
           wd := hm.io.left
           addr := cfg.BA(ra.address |<< 1)
           when(ra.address.msb) {
             state := sWriteLast
             // addr := cfg.BA(ra.address |<< 1)
-          } /*otherwise {
-            addr.address := ra.address |<< 1
-          }*/
-        }.elsewhen(!hm.io.dr && (ra.address * 2 + 1 < size)) {
+          } // otherwise {
+          //   addr.address := ra.address |<< 1
+          // }
+        }.elsewhen(!hm.io.dr && (ra.address * 2 + 1 <= size)) {
           wd := hm.io.right
           addr := cfg.BA((ra.address |<< 1) + 1)
           when(ra.address.msb) {
-            state := sWriteLast
-            //addr := cfg.BA((ra.address |<< 1) + 1)
-          } /*otherwise {
-            addr.address := (ra.address |<< 1) + 1
-          }*/
+             state := sWriteLast
+          //   addr := cfg.BA((ra.address |<< 1) + 1)
+          } //otherwise {
+          //   addr.address := (ra.address |<< 1) + 1
+          // }
         }.otherwise {
           wd := data
           state := sDownDone

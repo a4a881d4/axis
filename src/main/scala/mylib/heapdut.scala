@@ -49,7 +49,7 @@ object MyHeapRandom {
             println(s"find $v,${mem(v)}")
             mem -= v
           } else {
-            println(s"not find $v $k "+s"[$idx:$size-$mySize($state)] pop $k($v) delay = ${idx-k}")
+            println(s"not find $v $k ${mem.size} "+s"[$idx:$size-$mySize($state)] pop $k($v) delay = ${idx-k}")
           }
         }
         idx += 1
