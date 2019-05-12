@@ -69,7 +69,7 @@ case class HeapMem(cfg:HeapConfig) extends Component {
 
     val wd    = slave(HeapItem(cfg))
 
-    val lr    = out Bool
+    val rl    = out Bool
     val dl    = out Bool
     val dr    = out Bool
     val dd    = out Bool
@@ -94,7 +94,7 @@ case class HeapMem(cfg:HeapConfig) extends Component {
   left      := HLeft.readAsync(address = io.ra.address)
   right     := HRight.readAsync(address = io.ra.address)
 
-  io.lr     := (left    <= right)
+  io.rl     := (right   <= left)
   dl        := (io.data <= left)
   dr        := (io.data <= right)
   io.dd     := Mux(io.ra.lr,dr,dl)
@@ -231,7 +231,7 @@ case class heap(cfg:HeapConfig) extends Component {
         wd.zero
       }
       is(sDown) {
-        when(!hm.io.dl && (ra.address * 2 <= size)) {
+        when(!hm.io.dl && !hm.io.rl && (ra.address * 2 <= size)) {
           addr.address := ra.address |<< 1
           wd := hm.io.left
         }.elsewhen(!hm.io.dr && (ra.address * 2 + 1 <= size)) {
