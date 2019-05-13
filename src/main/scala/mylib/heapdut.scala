@@ -23,8 +23,8 @@ object MyHeapRandom {
       while(idx<65536) {
         dut.io.output.ready #= true
         dut.io.now #= idx
-        if(!dut.io.insert.valid.toBoolean && Random.nextInt(100)<8) {
-          val insertD = idx + 256 + Random.nextInt(1024) 
+        if(!dut.io.insert.valid.toBoolean && Random.nextInt(100)<4) {
+          val insertD = idx + 256 + Random.nextInt(256) 
           dut.io.insert.payload.key #= insertD
           dut.io.insert.payload.value #= idx
           dut.io.insert.valid #= true
