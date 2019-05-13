@@ -24,9 +24,11 @@ case class HeapItem(cfg:HeapConfig) extends Bundle with IMasterSlave {
 
 case class HeapConfig(  MemDeep    : Int,
                         ItemCfg    : HeapItemConfig,
-                        insertFifo : Int
+                        insertFifo : Int,
+                        outputFifo : Int
                         ) {
-  def hasFifo = (insertFifo > 0)
+  def hasInsertFifo = (insertFifo > 0)
+  def hasOutoutFifo = (outputFifo > 0)
   def AWidth = log2Up(MemDeep)
   def BA(x:UInt) : BAddress = {
     val r = BAddress(this)
@@ -80,7 +82,6 @@ case class HeapMem(cfg:HeapConfig) extends Component {
     val rd    = master(HeapItem(cfg))
 
     val data  = slave(HeapItem(cfg))
-
     val wd    = slave(HeapItem(cfg))
 
     val rl    = out Bool
@@ -150,7 +151,7 @@ case class heap(cfg:HeapConfig,_debug:Boolean = false) extends Component {
   val state   = Reg(HeapState()) 
   val upReady = RegInit(False)
   val oValid  = RegInit(False)
-  val output  = Reg(HeapItem(cfg)) 
+  val outReg  = Reg(HeapItem(cfg)) 
   val addr    = Reg(UInt(cfg.AWidth bits)) 
   val now     = Reg(UInt(cfg.ItemCfg.KeyWidth bits)) init(0)
 
@@ -163,24 +164,32 @@ case class heap(cfg:HeapConfig,_debug:Boolean = false) extends Component {
   val hm      = HeapMem(cfg)
 
   val insert  = Stream(HeapItem(cfg))
+  val output  = Stream(HeapItem(cfg))
 
-  if(cfg.hasFifo) {
-    val fifo = StreamFifo( dataType = HeapItem(cfg), depth = cfg.insertFifo)
-    fifo.io.push << io.insert
-    fifo.io.pop >> insert
-    fifo.io.flush := io.clear
+  if(cfg.hasInsertFifo) {
+    val fifoI = StreamFifo( dataType = HeapItem(cfg), depth = cfg.insertFifo)
+    fifoI.io.push << io.insert
+    fifoI.io.pop >> insert
+    fifoI.io.flush := io.clear
   } else {
     insert << io.insert
   }
-  
-  io.output.valid := oValid
+  if(cfg.hasOutoutFifo) {
+    val fifoO = StreamFifo( dataType = HeapItem(cfg), depth = cfg.outputFifo)
+    fifoO.io.push << output
+    fifoO.io.pop >> io.output
+    now := io.now + 256
+  } else {
+    now := io.now
+    output >> io.output
+  }
+
+  output.valid := oValid
   insert.ready := upReady
   io.state := state.asBits
   io.size := size
-  io.output.payload := output
+  output.payload := outReg
   
-  now             := io.now
-
   hm.io.wd        := wd
   hm.io.ra        := ra
   hm.io.wa        := wa
@@ -223,7 +232,7 @@ case class heap(cfg:HeapConfig,_debug:Boolean = false) extends Component {
   } otherwise {
     switch(state) {
       is(sIdle) {
-        when(io.output.ready && size > 0) {
+        when(output.ready && size > 0) {
           state := sCheck
         }.elsewhen(insert.valid && size < cfg.MemDeep-2) {
           state := sPreUp
@@ -233,7 +242,7 @@ case class heap(cfg:HeapConfig,_debug:Boolean = false) extends Component {
       }
       is(sCheck) {
         when(cfg.cmp(rd.key,now)) {
-          output := rd
+          outReg := rd
           oValid := True
           state  := sCheckDone
         }.elsewhen(insert.valid && size < cfg.MemDeep-2) {
@@ -245,7 +254,7 @@ case class heap(cfg:HeapConfig,_debug:Boolean = false) extends Component {
         wd.zero
       }
       is(sCheckDone) {
-        when(io.output.fire) {
+        when(output.fire) {
           oValid := False
           state := sPreDown
         }

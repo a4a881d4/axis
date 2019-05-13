@@ -10,7 +10,7 @@ import open5g.lib.common.SignalFormat
 
 object MyHeapRandom {
   def main(srgs: Array[String]) {
-    val config = HeapConfig(64,HeapItemConfig(24,17),16)
+    val config = HeapConfig(64,HeapItemConfig(24,17),16,-1)
     SimConfig.withWave.doSim(new heap(config,false)){dut =>
       var idx = 0
       val mem = scala.collection.mutable.Map[Int,Int]()
@@ -85,7 +85,7 @@ object MyHeapSim {
   def toInt(x:Boolean) = if(x) 1 else 0
   def main(args: Array[String]) {
 
-    val config = HeapConfig(8,HeapItemConfig(24,12),16)
+    val config = HeapConfig(8,HeapItemConfig(24,12),16,-1)
     val f = SignalFormat()
     f.add("idx",5)
     f.add("state",4)
@@ -172,7 +172,7 @@ object MyHeapSim {
 
 object MyHeapGen {
   def main(args: Array[String]) {
-    val config = HeapConfig(64,HeapItemConfig(24,12),16)
-    SpinalVerilog(new heap(config,false))
+    val config = HeapConfig(64,HeapItemConfig(24,12),16,-1)
+    SpinalVhdl(new heap(config,false))
   }
 } 
