@@ -10,7 +10,7 @@ import open5g.lib.common.SignalFormat
 
 object MyHeapRandom {
   def main(srgs: Array[String]) {
-    val config = HeapConfig(4,HeapItemConfig(24,17),16)
+    val config = HeapConfig(64,HeapItemConfig(24,17),-1)
     SimConfig.withWave.doSim(new heap(config,false)){dut =>
       var idx = 0
       val mem = scala.collection.mutable.Map[Int,Int]()
@@ -53,6 +53,27 @@ object MyHeapRandom {
           }
         }
         idx += 1
+      }
+      println(s"left:${mem.size}")
+      while(idx<65536+1024) {
+        dut.io.output.ready #= true
+        dut.io.now #= idx
+        dut.clockDomain.waitRisingEdge()
+        val size = dut.io.size.toInt
+        val state = dut.io.state.toInt
+        if(dut.io.output.valid.toBoolean) {
+          val k = dut.io.output.key.toInt
+          val v = dut.io.output.value.toInt
+          mySize -= 1
+          println(s"[$idx:$size-$mySize($state)] pop $k($v) delay = ${idx-k}")
+          if(mem.contains(v)) {
+            println(s"find $v,${mem(v)}")
+            mem -= v
+          } else {
+            println(s"not find $v $k ${mem.size} "+s"[$idx:$size-$mySize($state)] pop $k($v) delay = ${idx-k}")
+          }
+        }
+        idx += 1  
       }
       println(s"left:${mem.size}")
     }
