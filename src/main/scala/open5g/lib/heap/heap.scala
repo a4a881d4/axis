@@ -29,6 +29,7 @@ case class HeapConfig(  MemDeep    : Int,
                         ) {
   def hasInsertFifo = (insertFifo > 0)
   def hasOutoutFifo = (outputFifo > 0)
+  def aHead = 256
   def AWidth = log2Up(MemDeep)
   def BA(x:UInt) : BAddress = {
     val r = BAddress(this)
@@ -176,19 +177,24 @@ case class heap(cfg:HeapConfig,_debug:Boolean = false) extends Component {
   }
   if(cfg.hasOutoutFifo) {
     val fifoO = StreamFifo( dataType = HeapItem(cfg), depth = cfg.outputFifo)
+    val nowo = Reg(UInt(cfg.ItemCfg.KeyWidth bits)) init(0)
+    val gate = Stream(HeapItem(cfg))
+    nowo := io.now
     fifoO.io.push << output
-    fifoO.io.pop >> io.output
-    now := io.now + 256
+    fifoO.io.pop  >> gate
+    gate.haltWhen(cfg.cmp(nowo,gate.payload.key)) >> io.output
+    now := io.now + cfg.aHead
+    fifoO.io.flush := io.clear
   } else {
     now := io.now
     output >> io.output
   }
 
-  output.valid := oValid
-  insert.ready := upReady
-  io.state := state.asBits
-  io.size := size
-  output.payload := outReg
+  output.valid    := oValid
+  insert.ready    := upReady
+  io.state        := state.asBits
+  io.size         := size
+  output.payload  := outReg
   
   hm.io.wd        := wd
   hm.io.ra        := ra
