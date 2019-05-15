@@ -19,6 +19,9 @@ case class elemIdent(name:String) extends ParserElem
 case class elemModule(name:String,generics:List[elemGeneric],ports:List[elemPort]) extends ParserElem
 case class elemGeneric(name:String,value:String) extends ParserElem
 case class elemPort(name:String,signal:String,dir:Int) extends ParserElem
+case class elemInPort(signal:String) extends ParserElem
+case class elemOutPort(signal:String) extends ParserElem
+case class elemRange(range:String) extends ParserElem
 
 class verilogParser extends StandardTokenParsers {
   lexical.delimiters += (",","#","(",")",";","=","[","]",":")
@@ -31,8 +34,8 @@ class verilogParser extends StandardTokenParsers {
 
   def parserModule : Parser[Any] = {
     "module"~ident~opt(parserGenerics)~parserPorts~";" ^^ { x => x match {
-        case module~ident~Some(gen)~ports~com => elemModule(ident,gen,List[elemPort]())
-        case module~ident~None~ports~com      => elemModule(ident,List[elemGeneric](),List[elemPort]())
+        case module~ident~Some(gen)~ports~com => elemModule(ident,gen,ports)
+        case module~ident~None~ports~com      => elemModule(ident,List[elemGeneric](),ports)
       }
     }
   }
@@ -46,19 +49,35 @@ class verilogParser extends StandardTokenParsers {
   def parserOneGeneric : Parser[elemGeneric] = {
     "parameter"~ident~"="~parserExpr ^^ { case parameter~ident~e~value => elemGeneric(ident,value) }
   }
-  def parserPorts : Parser[Any] ={
+  def parserPorts : Parser[List[elemPort]] ={
     "("~repsep(parserOnePort,",")~")" ^^ { x => x match {
       case c~ports~c2 => ports
       case _ => List[elemPort]() 
       }
     }
   }
-  def parserOnePort : Parser[Any] = (parserInDecl|parserOutDecl)~ident
-  def parserInDecl : Parser[Any] = "input"~parserSignalType
-  def parserOutDecl : Parser[Any] = "output"~parserSignalType
-  def parserSignalType : Parser[Any] = ("wire"~opt(parserRange)) | ("reg"~opt(parserRange))
-  def parserRange : Parser[Any] = {
-    "["~parserExpr~":"~parserExpr~"]"
+  def parserOnePort : Parser[elemPort] = {
+    (parserInDecl|parserOutDecl)~ident ^^ { x => x match {
+        case elemInPort(signalType)~ident => elemPort(ident,signalType,0)
+        case elemOutPort(signalType)~ident => elemPort(ident,signalType,1)
+        case _ => null
+      }
+    }
+  }
+  def parserInDecl : Parser[elemInPort] = "input"~parserSignalType ^^ { case in~signalType => elemInPort(signalType) }
+  def parserOutDecl : Parser[elemOutPort] = "output"~parserSignalType ^^ { case out~signalType => elemOutPort(signalType) }
+  def parserSignalType : Parser[String] = {
+    (("wire"~opt(parserRange)) | ("reg"~opt(parserRange))) ^^ { x => x match {
+        case "wire"~None => "Bool"
+        case "reg"~None => "Reg(Bool)"
+        case "wire"~Some(range) => "Bits( " + range + " bits)"
+        case "reg"~Some(range) => "Reg(Bits( " + range + " bits))"
+        case _ => null
+      }
+    }
+  }
+  def parserRange : Parser[String] = {
+    "["~parserExpr~":"~parserExpr~"]" ^^ { case br~high~m~low~br2 => "( " + high + " - " + low + " + 1 )"}
   }
   def parserExpr : Parser[String] = {
     (ident|parserInt)
