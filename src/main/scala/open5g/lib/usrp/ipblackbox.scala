@@ -53,7 +53,7 @@ class verilogParser extends StandardTokenParsers {
       }
     }
   }
-  def parserOnePort : Parser[Any] = (parserInDecl|parserOutDecl)~ident
+  def parserOnePort : Parser[Any] = (parserInDecl|parserOutDecl)~ident 
   def parserInDecl : Parser[Any] = "input"~parserSignalType
   def parserOutDecl : Parser[Any] = "output"~parserSignalType
   def parserSignalType : Parser[Any] = ("wire"~opt(parserRange)) | ("reg"~opt(parserRange))
