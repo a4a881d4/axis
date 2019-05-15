@@ -26,3 +26,19 @@ object BlackBoxVerilog {
   }
 }
 
+
+object BlackBoxGen extends verilogParser {
+  def main(args:Array[String]) {
+    val r = parserAll(parserModule,
+      """
+        |module dut (
+        |input wire clk,
+        |input wire rst,
+        |input wire [31:0] data,
+        |output wire [31:0] q
+        |};
+      """.stripMargin)
+ 
+    println(r)
+  }
+} 
