@@ -6,6 +6,8 @@ import spinal.sim._
 import spinal.core.sim._
 
 import open5g.lib.usrp._
+import java.io.{File, FileWriter, BufferedWriter}
+import scala.io.Source
 
 class bufg extends Component {
 
@@ -28,18 +30,16 @@ object BlackBoxVerilog {
 
 
 object BlackBoxGen extends verilogParser {
+  def remove(x:String) = {
+    x.take(x.indexOf("//"))
+  }
   def main(args:Array[String]) {
-    val r = parserAll(parserModule,
-      """
-        |module dut # (parameter A = 1) (
-        |input wire clk,
-        |input wire rst,
-        |input wire [31:0] data,
-        |output wire [31:0] q
-        |);
-      """.stripMargin)
- 
-    println(r)
-    
+    val fn = args(0)
+    if( new File(fn).exists ) {
+      val buffer = Source.fromFile(fn)
+      val moduleString = buffer.getLines.reduce(_+"\n"+_)
+      val r = parserAll(parserModule,moduleString)
+      println(r)
+    }
   }
 } 
