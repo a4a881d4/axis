@@ -12,11 +12,17 @@ class IBFGDS extends BlackBox {
   noIoPrefix()
 }
 
-import scala.util.parsing.combinator._
+import scala.util.parsing.combinator.syntactical._
 
-class verilogParser extends JavaTokenParsers {
-  // lexical.delimiters += (",","#","(",")",";","=","[","]",":")
-  // lexical.reserved   += ("module","parameter","input","output","wire")
+class verilogParser extends StandardTokenParsers {
+  lexical.delimiters += (",","#","(",")",";","=","[","]",":")
+  lexical.reserved   += ("module",
+    "parameter",
+    "input",
+    "output",
+    "wire",
+    "reg")
+
   def parserModule : Parser[Any] = {
     "module"~ident~opt(parserGenerics)~parserPorts~";"
   }
@@ -27,26 +33,33 @@ class verilogParser extends JavaTokenParsers {
     "parameter"~ident~"="~(parserExpr)
   }
   def parserPorts : Parser[Any] ={
-    "("~repsep(parserOneGeneric,",")~")"
+    "("~repsep(parserOnePort,",")~")"
   }
-  def parserOnePort : Parser[Any] = {
-    ("input"|"output")~("wire"|"reg")~opt(parserRange)~ident
-  }
+  def parserOnePort : Parser[Any] = (parserInDecl|parserOutDecl)~ident
+  def parserInDecl : Parser[Any] = "input"~parserSignalType
+  def parserOutDecl : Parser[Any] = "output"~parserSignalType
+  def parserSignalType : Parser[Any] = ("wire"~opt(parserRange)) | ("reg"~opt(parserRange))
   def parserRange : Parser[Any] = {
     "["~parserExpr~":"~parserExpr~"]"
   }
   def parserExpr : Parser[Any] = {
-    (ident|parserInt|parserBits)
+    (ident|parserInt)
   }
   def parserInt : Parser[Any] = {
-    digit~rep(digit)
+    numericLit
   }
-  def parserBits : Parser[Any] = {
-    parserInt~("h"|"d")~parserInt
-  }
-  // def parserAll[T]( p : Parser[T], input :String) = {
-  //   phrase(p)( new lexical.Scanner(input))
+  // def parserBits : Parser[Any] = {
+  //   parserInt~"'"~"d"~parserInt | parserInt~"'"~"h"~parserHex
   // }
+  def digit : Parser[Any] = {
+    numericLit
+  }
+  def parserHex : Parser[Any] = {
+    numericLit
+  }
+  def parserAll[T]( p : Parser[T], input :String) = {
+    phrase(p)( new lexical.Scanner(input))
+  }
 }
 
 
