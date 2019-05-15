@@ -40,5 +40,6 @@ object BlackBoxGen extends verilogParser {
       """.stripMargin)
  
     println(r)
+    
   }
 } 

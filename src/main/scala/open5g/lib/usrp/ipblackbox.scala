@@ -24,7 +24,14 @@ class verilogParser extends StandardTokenParsers {
     "reg")
 
   def parserModule : Parser[Any] = {
-    "module"~ident~opt(parserGenerics)~parserPorts~";"
+    "module"~ident~opt(parserGenerics)~parserPorts~";" ^^ { x => x match {
+
+      case module~ident~Some(gen)~ports~com => println(ident)
+      case _ => 
+
+      }
+      x
+    }
   }
   def parserGenerics : Parser[Any] ={
     "#"~"("~repsep(parserOneGeneric,",")~")"
