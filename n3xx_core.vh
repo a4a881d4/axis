@@ -62,7 +62,7 @@ module n3xx_core #(
   output [FP_GPIO_WIDTH-1:0]  ps_gpio_in,
 
   // Front Panel GPIO
-  inout  [FP_GPIO_WIDTH-1:0] fp_gpio_inout,
+  input  [FP_GPIO_WIDTH-1:0] fp_gpio_inout,
 
   // Radio GPIO control for DSA
   output [16*NUM_CHANNELS-1:0] db_gpio_out_flat,

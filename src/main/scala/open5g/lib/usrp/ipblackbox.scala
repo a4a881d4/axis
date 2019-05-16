@@ -52,6 +52,28 @@ class verilogParser extends StandardTokenParsers {
     "wire",
     "reg")
 
+  def expr   : Parser[Any] = term ~ rep(addsub) ^^ { x => x match {
+      case a~List() => a
+      case a~ls => a + ls.reduce(_+_)
+      case _ => ""   
+    }
+  }
+  def term   : Parser[Any] = factor ~ rep(muldiv) ^^ { x => x match {
+      case a~List() => a
+      case a~ls => a + ls.reduce(_+_)
+      case _ => ""   
+    }
+  }
+  def addsub : Parser[String] = {
+    ("+"~factor|"-"~factor) ^^ { case a~b => a.toString+b }
+  }
+  def muldiv : Parser[String] = {
+    ("*"~factor|"/"~factor) ^^ { case a~b => a.toString+b }
+  }
+  def factor : Parser[String] = {
+      (numericLit | ident | "("~expr~")") ^^ { _.toString }
+  }
+
   def parserModule : Parser[Any] = {
     "module"~ident~opt(parserGenerics)~parserPorts~";" ^^ { x => x match {
         case module~ident~Some(gen)~ports~com => elemModule(ident,gen,ports)
@@ -59,6 +81,7 @@ class verilogParser extends StandardTokenParsers {
       }
     }
   }
+
   def parserGenerics : Parser[List[elemGeneric]] ={
     "#"~"("~repsep(parserOneGeneric,",")~")" ^^ { x => x match {
       case j~c~gens~c2 => gens
@@ -67,7 +90,7 @@ class verilogParser extends StandardTokenParsers {
     }
   }
   def parserOneGeneric : Parser[elemGeneric] = {
-    "parameter"~ident~"="~parserExpr ^^ { case parameter~ident~e~value => elemGeneric(ident,value) }
+    "parameter"~ident~"="~parserExpr ^^ { case parameter~ident~e~value => elemGeneric(ident,value.toString) }
   }
   def parserPorts : Parser[List[elemPort]] ={
     "("~repsep(parserOnePort,",")~")" ^^ { x => x match {
@@ -98,10 +121,16 @@ class verilogParser extends StandardTokenParsers {
     }
   }
   def parserRange : Parser[String] = {
-    "["~parserExpr~":"~parserExpr~"]" ^^ { case br~high~m~low~br2 => "( " + high + " - " + low + " + 1 )"}
+    "["~parserExpr~":"~parserExpr~"]" ^^ { case br~high~m~low~br2 => "(" + rangeString(high.toString,low.toString)+")"}
   }
-  def parserExpr : Parser[String] = {
-    (ident|parserInt|ident~"-"~parserInt) 
+  def rangeString(high:String,low:String) = {
+    val h_1 = high.indexOf("-1")
+    (if(h_1 == -1) high else high.take(h_1)) + 
+    (if(low != "0") " - "+low+" " else "") +
+    (if(h_1 == -1) "+1" else "")
+  }
+  def parserExpr : Parser[Any] = {
+    expr 
   }
   def parserInt : Parser[String] = {
     numericLit ^^ { x => x.toString }
@@ -109,9 +138,6 @@ class verilogParser extends StandardTokenParsers {
   def digit : Parser[Any] = {
     numericLit
   }
-  // def parserBits : Parser[String] = {
-  //   numericLit~"'h'"~stringLit ^^ { case n~d~s => n.toString + "'" + s }
-  // }
   def parserAll[T]( p : Parser[T], input :String) = {
     phrase(p)( new lexical.Scanner(input))
   }
