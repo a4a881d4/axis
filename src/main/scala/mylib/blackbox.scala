@@ -28,7 +28,7 @@ class frame extends Component {
   val io = new Bundle {
     val mac_src = in Bits(48 bits)
     val ip_src = in Bits(32 bits)
-    val IN = slave Stream(axis(64,4))
+    val IN = slave Stream(axis(64,-1))
     val clk = in Bool
     val clear = in Bool
     val set_stb = in Bool
