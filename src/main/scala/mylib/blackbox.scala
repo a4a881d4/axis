@@ -37,8 +37,10 @@ object BlackBoxGen extends verilogParser {
     val fn = args(0)
     if( new File(fn).exists ) {
       val buffer = Source.fromFile(fn)
-      val moduleString = buffer.getLines.reduce(_+"\n"+_)
-      val r = parserAll(parserModule,moduleString)
+      val moduleString = buffer.getLines
+      val moduleWithOutComent = removeComment(moduleString).reduce(_+"\n"+_)
+      val f = getModule(moduleWithOutComent)
+      val r = parserAll(parserModule,f)
       println(r)
     }
   }

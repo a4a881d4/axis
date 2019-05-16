@@ -141,6 +141,53 @@ class verilogParser extends StandardTokenParsers {
   def parserAll[T]( p : Parser[T], input :String) = {
     phrase(p)( new lexical.Scanner(input))
   }
+  
+  def findBrackets(s:String) = {
+    var m = 0
+    while(s.charAt(m) != '(' && m < s.length) {
+      m += 1
+    }
+    if(m != s.length) {
+      (s.take(m),s.drop(m))
+    } else {
+      ("",s)
+    }
+  }
+  
+  def findMatch(s:String) = {
+    var m = 0
+    var i = 0
+    if(s.charAt(i) == '(') {
+      m += 1
+      i += 1
+    }
+    while(m!=0 && i < s.length) {
+      if(s.charAt(i) == '(') m += 1
+      if(s.charAt(i) == ')') m -= 1
+      i += 1
+    }
+    (s.take(i),s.drop(i))
+  }
+
+  def removeComment(s:Iterator[String]) = {
+    s.map{x => {
+        val i = x.indexOf("//")
+        if(i == -1) x else x.take(i)
+      }
+    }
+  }
+
+  def getModule(s:String) = {
+    val (f,e) = findBrackets(s)
+    if(f.indexOf("#") == -1) {
+      val (e0,e1) = findMatch(e)
+      f+e0+";\n"
+    } else {
+      val (e0,e1) = findMatch(e)
+      val (e2,e3) = findMatch(e1)
+      f+e0+e2+";\n"
+    }
+  }
 }
 
 
