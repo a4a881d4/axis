@@ -9,6 +9,9 @@ class IBFGDS extends BlackBox {
     val IB = in Bool
     val O = out Bool
   }
+  val debug = new Bundle {
+    val I = in Bool
+  }
   noIoPrefix()
 }
 
@@ -18,9 +21,41 @@ class elemExpr extends ParserElem
 case class elemIdent(name:String) extends ParserElem
 
 case class elemModule(name:String,generics:List[elemGeneric],ports:List[elemPort]) extends ParserElem {
+  def portPerfix = {
+    ports.groupBy{x => 
+      val i = x.name.lastIndexOf("_")
+      if(i == -1) x.name else x.name.take(i)
+    }
+  }
+  def toAxis(k:String,l:List[elemPort]) = {
+    val axisu = List("tready","tvalid","tdata","tuser","tlast").forall(x => l.exists(y => (y.name.indexOf(x) != -1)))
+    val axis = List("tready","tvalid","tdata","tlast").forall(x => l.exists(y => (y.name.indexOf(x) != -1)))
+    if(axis) {
+      var  r = "\t\t"
+      r += s"val $k = "
+      val tdata = l.filter(x => (x.name.indexOf("tdata") != -1))(0)
+      r += (if(tdata.dir == 0) "slave " else "master ")
+      r += s"Stream(Bundle{val data = ${tdata.signal};val last = Bool"
+      if(axisu) {
+        val tuser = l.filter(x => (x.name.indexOf("tuser") != -1))(0)
+        r += s"; val user = ${tuser.signal}"
+      }
+      r += "})"
+      List(r)
+    } else {
+      l.map(_.toString)
+    }
+  }
+  def portGroup = {
+    val gp = portPerfix
+    // gp.foldLeft(List[String]()){case (a,(k,l)) => {
+    //   if(l.length<4) l.map(_.toString) ++ a else  a ++ List(s"\t\tval $k = new Bundle {") ++ l.map("\t"+_.remove(k).toString) ++  List("\t\t}")
+    // }}
+    gp.map{case (k,l) => toAxis(k,l)}.reduce(_ ++ _)
+  }
   override def toString = {
     "case class " + name + "(" + generics.map(_.toString).reduce(_ + ",\n" + _) + ")" + " extends BlackBox {\n" +
-    "\tval io = new Bundle {\n" + ports.map(_.toString).reduce(_ + "\n" + _) + "\n" +
+    "\tval io = new Bundle {\n" + portGroup.reduce(_ + "\n" + _) + "\n" +
     "\t}\n" +
     "\tnoIoPrefix()\n" +
     "}\n" 
@@ -34,6 +69,7 @@ case class elemGeneric(name:String,value:String) extends ParserElem {
 }
 
 case class elemPort(name:String,signal:String,dir:Int) extends ParserElem {
+  def remove(k:String) = elemPort(name.drop(k.length+1),signal,dir)
   override def toString = {
     "\t\t" + "val " + name + " = " + (if(dir == 0) "in" else "out") + " " + signal
   }
@@ -114,20 +150,32 @@ class verilogParser extends StandardTokenParsers {
     opt("reg")~opt(parserRange) ^^ { x => x match {
         case None~None => "Bool"
         case Some("reg")~None => "Reg(Bool)"
-        case None~Some(range) => "Bits( " + range + " bits)"
-        case Some("reg")~Some(range) => "Reg(Bits( " + range + " bits))"
+        case None~Some(range) => "Bits(" + range + " bits)"
+        case Some("reg")~Some(range) => "Reg(Bits(" + range + " bits))"
         case _ => null
       }
     }
   }
   def parserRange : Parser[String] = {
-    "["~parserExpr~":"~parserExpr~"]" ^^ { case br~high~m~low~br2 => "(" + rangeString(high.toString,low.toString)+")"}
+    "["~parserExpr~":"~parserExpr~"]" ^^ { case br~high~m~low~br2 => rangeString(high.toString,low.toString)}
+  }
+  def toInt(s: String): Option[Int] = {
+    try {
+      Some(s.toInt)
+    } catch {
+      case e: Exception => None
+    }
   }
   def rangeString(high:String,low:String) = {
-    val h_1 = high.indexOf("-1")
-    (if(h_1 == -1) high else high.take(h_1)) + 
-    (if(low != "0") " - "+low+" " else "") +
-    (if(h_1 == -1) "+1" else "")
+    (toInt(high),toInt(low)) match {
+      case (Some(h),Some(l)) => (h-l+1).toString
+      case _ => {
+        val h_1 = high.indexOf("-1")
+        (if(h_1 == -1) high else high.take(h_1)) + 
+        (if(low != "0") " - "+low+" " else "") +
+        (if(h_1 == -1) "+1" else "")  
+      }
+    }
   }
   def parserExpr : Parser[Any] = {
     expr 
@@ -188,6 +236,8 @@ class verilogParser extends StandardTokenParsers {
       f+e0+e2+";\n"
     }
   }
+
+  
 }
 
 
