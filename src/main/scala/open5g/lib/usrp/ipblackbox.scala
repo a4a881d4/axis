@@ -16,10 +16,17 @@ class IBFGDS extends BlackBox {
 }
 
 import scala.util.parsing.combinator.syntactical._
+
 trait ParserElem
 class elemExpr extends ParserElem
 case class elemIdent(name:String) extends ParserElem
 
+object elemModule {
+  def exists(Signals:List[String],l:List[elemPort]) = Signals.forall(x => l.exists(y => (y.name.indexOf(x) != -1)))
+  val AxisSignal  = List("tready","tvalid","tdata","tlast")
+  def AxisUSignal = ("tuser" :: AxisSignal)
+  
+}
 case class elemModule(name:String,generics:List[elemGeneric],ports:List[elemPort]) extends ParserElem {
   def portPerfix = {
     ports.groupBy{x => 
@@ -27,9 +34,10 @@ case class elemModule(name:String,generics:List[elemGeneric],ports:List[elemPort
       if(i == -1) x.name else x.name.take(i)
     }
   }
+
   def toAxis(k:String,l:List[elemPort]) = {
-    val axisu = List("tready","tvalid","tdata","tuser","tlast").forall(x => l.exists(y => (y.name.indexOf(x) != -1)))
-    val axis = List("tready","tvalid","tdata","tlast").forall(x => l.exists(y => (y.name.indexOf(x) != -1)))
+    val axisu = elemModule.exists(elemModule.AxisUSignal,l)
+    val axis  = elemModule.exists(elemModule.AxisSignal,l)
     if(axis) {
       var  r = "\t\t"
       r += s"val $k = "
@@ -48,13 +56,11 @@ case class elemModule(name:String,generics:List[elemGeneric],ports:List[elemPort
   }
   def portGroup = {
     val gp = portPerfix
-    // gp.foldLeft(List[String]()){case (a,(k,l)) => {
-    //   if(l.length<4) l.map(_.toString) ++ a else  a ++ List(s"\t\tval $k = new Bundle {") ++ l.map("\t"+_.remove(k).toString) ++  List("\t\t}")
-    // }}
     gp.map{case (k,l) => toAxis(k,l)}.reduce(_ ++ _)
   }
+  def toGenericString = if(generics.length > 0) generics.map(_.toString).reduce(_ + ",\n" + _) else ""
   override def toString = {
-    "case class " + name + "(" + generics.map(_.toString).reduce(_ + ",\n" + _) + ")" + " extends BlackBox {\n" +
+    "case class " + name + "(" + toGenericString + ")" + " extends BlackBox {\n" +
     "\tval io = new Bundle {\n" + portGroup.reduce(_ + "\n" + _) + "\n" +
     "\t}\n" +
     "\tnoIoPrefix()\n" +
@@ -236,8 +242,6 @@ class verilogParser extends StandardTokenParsers {
       f+e0+e2+";\n"
     }
   }
-
-  
 }
 
 

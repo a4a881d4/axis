@@ -2,14 +2,7 @@ package open5g.lib.usrp
 
 import spinal.core._
 import spinal.lib._
-import open5g.lib.axis._
-
-
-case class axis(dt:Int,ut:Int) extends Bundle {
-	val user = (if(ut>0) Bits(ut bits)  else null)
-	val data = Bits(dt bits)
-	val last = Bool
-}
+import open5g.lib.axis.axis
 
 case class n3xx_chdr_eth_framer(	BASE : Int = 0,
 	AWIDTH : Int = 8) extends BlackBox {

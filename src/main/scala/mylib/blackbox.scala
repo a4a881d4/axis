@@ -6,6 +6,8 @@ import spinal.sim._
 import spinal.core.sim._
 
 import open5g.lib.usrp._
+import open5g.lib.axis.axis
+
 import java.io.{File, FileWriter, BufferedWriter, PrintWriter}
 import scala.io.Source
 
@@ -71,6 +73,7 @@ object usrpGen extends verilogParser {
     children.toIterator 
   }
   def main(args:Array[String]) {
+    println("-------------------")
     val dir = args(0)
     val d = new File(dir)
     println(d.getAbsolutePath)
