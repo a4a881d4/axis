@@ -2,6 +2,8 @@ package open5g.lib.usrp
 
 import spinal.core._
 import spinal.lib._
+import open5g.lib.axis._
+
 
 case class axis(dt:Int,ut:Int) extends Bundle {
 	val user = Bits(ut bits)
