@@ -6,7 +6,7 @@ import open5g.lib.axis._
 
 
 case class axis(dt:Int,ut:Int) extends Bundle {
-	val user = Bits(ut bits)
+	val user = (if(ut>0) Bits(ut bits)  else null)
 	val data = Bits(dt bits)
 	val last = Bool
 }
@@ -16,7 +16,7 @@ case class n3xx_chdr_eth_framer(	BASE : Int = 0,
 	val io = new Bundle {
 		val mac_src = in Bits(48 bits)
 		val ip_src = in Bits(32 bits)
-		val IN = slave Stream(axis(64,4))
+		val IN = slave Stream(axis(64,-1))
 		val clk = in Bool
 		val clear = in Bool
 		val set_stb = in Bool
@@ -29,7 +29,7 @@ case class n3xx_chdr_eth_framer(	BASE : Int = 0,
 	}
 	noIoPrefix()
 }
-/*
+
 case class n3xx_core(	REG_DWIDTH : Int = 32,
 	REG_AWIDTH : Int = 32,
 	BUS_CLK_RATE : Int = 200000000,
@@ -48,17 +48,17 @@ case class n3xx_core(	REG_DWIDTH : Int = 32,
 		val bus_clk = in Bool
 		val bus_rst = in Bool
 		val db_gpio_ddr_flat = out Bits(16*NUM_CHANNELS bits)
-		val meas_clk_reset = out Reg(Bool)
+		val meas_clk_reset = out Bool
 		val meas_clk_locked = in Bool
 		val fp_gpio_inout = in Bits(FP_GPIO_WIDTH bits)
 		val radio_clk = in Bool
 		val radio_rst = in Bool
-		val e2v1 = slave Stream(Bundle{val data = Bits(64 bits);val last = Bool})
-		val dmao = master Stream(Bundle{val data = Bits(64 bits);val last = Bool})
+		val e2v1 = slave Stream(axis(64,-1))
+		val dmao = master Stream(axis(64,-1))
 		val mosi_flat = out Bits(NUM_DBOARDS bits)
 		val db_gpio_fab_flat = in Bits(16*NUM_CHANNELS bits)
 		val db_gpio_in_flat = in Bits(16*NUM_CHANNELS bits)
-		val v2e0 = master Stream(Bundle{val data = Bits(64 bits);val last = Bool})
+		val v2e0 = master Stream(axis(64,-1))
 		val ddr3_running = in Bool
 		val reg_wr_data_npio = out Bits(REG_DWIDTH bits)
 		val s_axi_aclk = in Bool
@@ -81,7 +81,7 @@ case class n3xx_core(	REG_DWIDTH : Int = 32,
 		val s_axi_rvalid = out Bool
 		val s_axi_rready = in Bool
 		val build_datestamp = in Bits(32 bits)
-		val ref_clk_reset = out Reg(Bool)
+		val ref_clk_reset = out Bool
 		val ref_clk_locked = in Bool
 		val rx_atr = out Bits(NUM_CHANNELS bits)
 		val rx_stb = in Bits(NUM_CHANNELS bits)
@@ -135,22 +135,22 @@ case class n3xx_core(	REG_DWIDTH : Int = 32,
 		val ddr3_axi_rlast = in Bool
 		val ddr3_axi_rvalid = in Bool
 		val reg_wr_req_npio = out Bool
-		val dmai = slave Stream(Bundle{val data = Bits(64 bits);val last = Bool})
+		val dmai = slave Stream(axis(64,-1))
 		val pps = in Bool
-		val pps_select = out Reg(Bits(4 bits))
+		val pps_select = out Bits(4 bits)
 		val sen_flat = out Bits(NUM_SPI_PER_DBOARD*NUM_DBOARDS bits)
-		val pps_select_sfp = out Reg(Bits(2 bits))
+		val pps_select_sfp = out Bits(2 bits)
 		val ddr3_dma_clk = in Bool
 		val sfp_ports_info = in Bits(64 bits)
 		val sclk_flat = out Bits(NUM_DBOARDS bits)
 		val reg_rd_addr_npio = out Bits(REG_AWIDTH bits)
-		val pps_out_enb = out Reg(Bool)
+		val pps_out_enb = out Bool
 		val tx_atr = out Bits(NUM_CHANNELS bits)
 		val tx_stb = in Bits(NUM_CHANNELS bits)
 		val tx = out Bits(CHANNEL_WIDTH*NUM_CHANNELS bits)
-		val v2e1 = master Stream(Bundle{val data = Bits(64 bits);val last = Bool})
-		val e2v0 = slave Stream(Bundle{val data = Bits(64 bits);val last = Bool})
-		val enable_ref_clk_async = out Reg(Bool)
+		val v2e1 = master Stream(axis(64,-1))
+		val e2v0 = slave Stream(axis(64,-1))
+		val enable_ref_clk_async = out Bool
 	}
 	noIoPrefix()
 }
@@ -204,7 +204,7 @@ case class n3xx_eth_dispatch(	BASE : Int = 0,
 	DROP_UNKNOWN_MAC : Int = 1,
 	AWIDTH : Int = 8) extends BlackBox {
 	val io = new Bundle {
-		val in = slave Stream(Bundle{val data = Bits(64 bits);val last = Bool; val user = Bits(4 bits)})
+		val IN = slave Stream(axis(64,4))
 		val clk = in Bool
 		val clear = in Bool
 		val eth_mac = in Bits(48 bits)
@@ -212,15 +212,15 @@ case class n3xx_eth_dispatch(	BASE : Int = 0,
 		val set_addr = in Bits(AWIDTH bits)
 		val set_data = in Bits(32 bits)
 		val bridge_mac = in Bits(48 bits)
-		val xo = master Stream(Bundle{val data = Bits(64 bits);val last = Bool; val user = Bits(4 bits)})
+		val xo = master Stream(axis(64,4))
 		val debug_flags = out Bits(3 bits)
 		val debug = out Bits(32 bits)
 		val my_ip = in Bits(32 bits)
 		val my_port0 = in Bits(16 bits)
 		val my_port1 = in Bits(16 bits)
-		val cpu = master Stream(Bundle{val data = Bits(64 bits);val last = Bool; val user = Bits(4 bits)})
+		val cpu = master Stream(axis(64,4))
 		val reset = in Bool
-		val vita = master Stream(Bundle{val data = Bits(64 bits);val last = Bool})
+		val vita = master Stream(axis(64,-1))
 	}
 	noIoPrefix()
 }
@@ -236,26 +236,26 @@ case class n3xx_eth_switch(	BASE : Int = 0,
 	DEFAULT_IP_ADDR : Int = 0,
 	DEFAULT_UDP_PORTS : Int = 0) extends BlackBox {
 	val io = new Bundle {
-		val v2e = slave Stream(Bundle{val data = Bits(64 bits);val last = Bool})
+		val v2e = slave Stream(axis(64,-1))
 		val clk = in Bool
 		val clear = in Bool
 		val reg_wr_req = in Bool
 		val reg_wr_addr = in Bits(REG_AWIDTH bits)
 		val reg_wr_data = in Bits(REG_DWIDTH bits)
 		val reg_wr_keep = in Bits(REG_DWIDTH/8 bits)
-		val xo = master Stream(Bundle{val data = Bits(64 bits);val last = Bool; val user = Bits(4 bits)})
+		val xo = master Stream(axis(64,4))
 		val debug = out Bits(32 bits)
-		val e2c = master Stream(Bundle{val data = Bits(64 bits);val last = Bool; val user = Bits(4 bits)})
-		val eth_tx = master Stream(Bundle{val data = Bits(64 bits);val last = Bool; val user = Bits(4 bits)})
-		val c2e = slave Stream(Bundle{val data = Bits(64 bits);val last = Bool; val user = Bits(4 bits)})
+		val e2c = master Stream(axis(64,4))
+		val eth_tx = master Stream(axis(64,4))
+		val c2e = slave Stream(axis(64,4))
 		val reset = in Bool
-		val e2v = master Stream(Bundle{val data = Bits(64 bits);val last = Bool})
-		val eth_rx = slave Stream(Bundle{val data = Bits(64 bits);val last = Bool; val user = Bits(4 bits)})
-		val xi = slave Stream(Bundle{val data = Bits(64 bits);val last = Bool; val user = Bits(4 bits)})
+		val e2v = master Stream(axis(64,-1))
+		val eth_rx = slave Stream(axis(64,4))
+		val xi = slave Stream(axis(64,4))
 		val reg_rd_req = in Bool
 		val reg_rd_addr = in Bits(REG_AWIDTH bits)
-		val reg_rd_resp = out Reg(Bool)
-		val reg_rd_data = out Reg(Bits(REG_DWIDTH bits))
+		val reg_rd_resp = out Bool
+		val reg_rd_data = out (Bits(REG_DWIDTH bits))
 	}
 	noIoPrefix()
 }
@@ -271,7 +271,7 @@ case class n3xx_mgt_channel_wrapper(	PROTOCOL : Int = 10,
 	GT_COMMON : Int = 1) extends BlackBox {
 	val io = new Bundle {
 		val rxn = in Bits(LANES bits)
-		val v2e = slave Stream(Bundle{val data = Bits((((~LANES*64)~)) bits);val last = Bool})
+		val v2e = Vec(slave Stream(axis(64,-1)),LANES)
 		val gt_tx_out_clk_unbuf = out Bool
 		val bus_rst = in Bool
 		val bus_clk = in Bool
@@ -302,7 +302,7 @@ case class n3xx_mgt_channel_wrapper(	PROTOCOL : Int = 10,
 		val s_axi_rresp = out Bits(2 bits)
 		val s_axi_rvalid = out Bool
 		val s_axi_rready = in Bool
-		val xo = master Stream(Bundle{val data = Bits(LANES*64 bits);val last = Bool; val user = Bits(LANES*4 bits)})
+		val xo = Vec(master Stream(axis(64,4)),LANES)
 		val wr_axi_aclk = out Bool
 		val wr_axi_aresetn = in Bool
 		val wr_axi_awaddr = in Bits(32 bits)
@@ -326,7 +326,7 @@ case class n3xx_mgt_channel_wrapper(	PROTOCOL : Int = 10,
 		val txp = out Bits(LANES bits)
 		val mod_reset_n = in Bool
 		val qpllrefclklost = in Bool
-		val e2c = master Stream(Bundle{val data = Bits(LANES*64 bits);val last = Bool})
+		val e2c = Vec(master Stream(axis(64,-1)),LANES)
 		val mod_sel_n = out Bool
 		val wr_eeprom_scl_o = out Bool
 		val wr_eeprom_scl_i = in Bool
@@ -337,16 +337,16 @@ case class n3xx_mgt_channel_wrapper(	PROTOCOL : Int = 10,
 		val link_up = out Bits(LANES bits)
 		val sync_clk = in Bool
 		val misc_clk = in Bool
-		val c2e = slave Stream(Bundle{val data = Bits(LANES*64 bits);val last = Bool})
+		val c2e = Vec(slave Stream(axis(64,-1)),LANES)
 		val wr_uart_rx = in Bool
 		val wr_uart_tx = out Bool
 		val qplloutrefclk = in Bool
-		val e2v = master Stream(Bundle{val data = Bits((((~LANES*64)~)) bits);val last = Bool})
+		val e2v = Vec(master Stream(axis(64,-1)),LANES)
 		val mod_tx_fault = in Bool
 		val mod_tx_disable = out Bool
 		val wr_eeprom_sda_o = out Bool
 		val wr_eeprom_sda_i = in Bool
-		val xi = slave Stream(Bundle{val data = Bits(LANES*64 bits);val last = Bool; val user = Bits(LANES*4 bits)})
+		val xi = Vec(slave Stream(axis(64,4)),LANES)
 		val mod_present_n = in Bool
 		val activity = out Bits(LANES bits)
 		val qpllreset = out Bool
@@ -386,20 +386,20 @@ case class n3xx_mgt_io_core(	PROTOCOL : Int = 10,
 		val reg_wr_data = in Bits(REG_DWIDTH bits)
 		val txp = out Bool
 		val qpllrefclklost = in Bool
-		val s_axis = slave Stream(Bundle{val data = Bits(64 bits);val last = Bool; val user = Bits(4 bits)})
+		val s_axis = slave Stream(axis(64,4))
 		val port_info = out Bits(32 bits)
 		val qplloutclk = in Bool
 		val link_up = out Bool
 		val sfpp_rxlos = in Bool
 		val sync_clk = in Bool
 		val misc_clk = in Bool
-		val m_axis = master Stream(Bundle{val data = Bits(64 bits);val last = Bool; val user = Bits(4 bits)})
+		val m_axis = master Stream(axis(64,4))
 		val qplloutrefclk = in Bool
 		val reg_rd_req = in Bool
 		val reg_rd_addr = in Bits(REG_AWIDTH bits)
 		val reg_rd_resp = out Bool
 		val reg_rd_data = out Bits(REG_DWIDTH bits)
-		val activity = out Reg(Bool)
+		val activity = out Bool
 		val qpllreset = out Bool
 		val txn = out Bool
 		val gb_refclk = in Bool
@@ -423,7 +423,7 @@ case class n3xx_mgt_wrapper(	PROTOCOL : Int = 10,
 	REG_BASE : Int = 0) extends BlackBox {
 	val io = new Bundle {
 		val rxn = in Bool
-		val v2e = slave Stream(Bundle{val data = Bits(64 bits);val last = Bool})
+		val v2e = slave Stream(axis(64,-1))
 		val gt_tx_out_clk_unbuf = out Bool
 		val bus_rst = in Bool
 		val bus_clk = in Bool
@@ -437,7 +437,7 @@ case class n3xx_mgt_wrapper(	PROTOCOL : Int = 10,
 		val reg_wr_req = in Bool
 		val reg_wr_addr = in Bits(REG_AWIDTH bits)
 		val reg_wr_data = in Bits(REG_DWIDTH bits)
-		val xo = master Stream(Bundle{val data = Bits(64 bits);val last = Bool; val user = Bits(4 bits)})
+		val xo = master Stream(axis(64,4))
 		val wr_axi_aclk = out Bool
 		val wr_axi_aresetn = in Bool
 		val wr_axi_awaddr = in Bits(32 bits)
@@ -460,7 +460,7 @@ case class n3xx_mgt_wrapper(	PROTOCOL : Int = 10,
 		val wr_axi_rlast = out Bool
 		val txp = out Bool
 		val qpllrefclklost = in Bool
-		val e2c = master Stream(Bundle{val data = Bits(64 bits);val last = Bool})
+		val e2c = master Stream(axis(64,-1))
 		val wr_eeprom_scl_o = out Bool
 		val wr_eeprom_scl_i = in Bool
 		val port_info = out Bits(32 bits)
@@ -470,16 +470,16 @@ case class n3xx_mgt_wrapper(	PROTOCOL : Int = 10,
 		val link_up = out Bool
 		val sync_clk = in Bool
 		val misc_clk = in Bool
-		val c2e = slave Stream(Bundle{val data = Bits(64 bits);val last = Bool})
+		val c2e = slave Stream(axis(64,-1))
 		val wr_uart_rx = in Bool
 		val wr_uart_tx = out Bool
 		val qplloutrefclk = in Bool
-		val e2v = master Stream(Bundle{val data = Bits(64 bits);val last = Bool})
+		val e2v = master Stream(axis(64,-1))
 		val mod_tx_fault = in Bool
 		val mod_tx_disable = out Bool
 		val wr_eeprom_sda_o = out Bool
 		val wr_eeprom_sda_i = in Bool
-		val xi = slave Stream(Bundle{val data = Bits(64 bits);val last = Bool; val user = Bits(4 bits)})
+		val xi = slave Stream(axis(64,4))
 		val reg_rd_req = in Bool
 		val reg_rd_addr = in Bits(REG_AWIDTH bits)
 		val reg_rd_resp = out Bool
@@ -500,5 +500,3 @@ case class n3xx_mgt_wrapper(	PROTOCOL : Int = 10,
 	}
 	noIoPrefix()
 }
-
-*/
