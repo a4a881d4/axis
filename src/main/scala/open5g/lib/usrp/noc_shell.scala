@@ -4,65 +4,45 @@ import spinal.core._
 import spinal.lib._
 import open5g.lib.axis.axis
 
-object NoCSRRegisters extends SpinalEnum {
-  val FLOW_CTRL_BYTES_PER_ACK     = newElement() // 1;
-  val FLOW_CTRL_WINDOW_SIZE       = newElement() // 2;
-  val FLOW_CTRL_EN                = newElement() // 3;
-  val ERROR_POLICY                = newElement() // 4;
-  val SRC_SID                     = newElement() // 5;
-  val NEXT_DST_SID                = newElement() // 6;
-  val RESP_IN_DST_SID             = newElement() // 7;
-  val RESP_OUT_DST_SID            = newElement() // 8;
-  val FLOW_CTRL_PKT_LIMIT         = newElement() // 9;
-  val RB_ADDR_USER                = newElement() // 124;
-  val CLEAR_RX_FC                 = newElement() // 125;
-  val CLEAR_TX_FC                 = newElement() // 126;
-  val RB_ADDR                     = newElement() // 127;
-  // Registers 128-255 for users
-  val USER_REG_BASE               = newElement() // 128;
-
-  val mapping = Map(
-    FLOW_CTRL_BYTES_PER_ACK     -> 1,
-    FLOW_CTRL_WINDOW_SIZE       -> 2,
-    FLOW_CTRL_EN                -> 3,
-    ERROR_POLICY                -> 4,
-    SRC_SID                     -> 5,
-    NEXT_DST_SID                -> 6,
-    RESP_IN_DST_SID             -> 7,
-    RESP_OUT_DST_SID            -> 8,
-    FLOW_CTRL_PKT_LIMIT         -> 9,
-    RB_ADDR_USER                -> 124,
-    CLEAR_RX_FC                 -> 125,
-    CLEAR_TX_FC                 -> 126,
-    RB_ADDR                     -> 127,
+object nocShell {
+  val nocSRRegisters = Map(
+    "FLOW_CTRL_BYTES_PER_ACK"     -> 1,
+    "FLOW_CTRL_WINDOW_SIZE"       -> 2,
+    "FLOW_CTRL_EN"                -> 3,
+    "ERROR_POLICY"                -> 4,
+    "SRC_SID"                     -> 5,
+    "NEXT_DST_SID"                -> 6,
+    "RESP_IN_DST_SID"             -> 7,
+    "RESP_OUT_DST_SID"            -> 8,
+    "FLOW_CTRL_PKT_LIMIT"         -> 9,
+    "RB_ADDR_USER"                -> 124,
+    "CLEAR_RX_FC"                 -> 125,
+    "CLEAR_TX_FC"                 -> 126,
+    "RB_ADDR"                     -> 127,
     // Registers 128-255 for users
-    USER_REG_BASE               -> 128
+    "USER_REG_BASE"               -> 128
+  ) 
+  val nocRBRegisters = Map(
+    "NOC_ID"               -> 0,
+    "GLOBAL_PARAMS"        -> 1,
+    "FIFOSIZE"             -> 2,
+    "MTU"                  -> 3,
+    "BLOCK_PORT_SIDS"      -> 4,
+    "USER_DATA"            -> 5,
+    "NOC_SHELL_COMPAT_NUM" -> 6
   )
-  defaultEncoding = SpinalEnumEncoding("staticEncoding")(
-    FLOW_CTRL_BYTES_PER_ACK     -> 1,
-    FLOW_CTRL_WINDOW_SIZE       -> 2,
-    FLOW_CTRL_EN                -> 3,
-    ERROR_POLICY                -> 4,
-    SRC_SID                     -> 5,
-    NEXT_DST_SID                -> 6,
-    RESP_IN_DST_SID             -> 7,
-    RESP_OUT_DST_SID            -> 8,
-    FLOW_CTRL_PKT_LIMIT         -> 9,
-    RB_ADDR_USER                -> 124,
-    CLEAR_RX_FC                 -> 125,
-    CLEAR_TX_FC                 -> 126,
-    RB_ADDR                     -> 127,
-    // Registers 128-255 for users
-    USER_REG_BASE               -> 128)
+  val pktType = Map(
+    "DATA"      -> 0,
+    "DATA_EOB"  -> 1,
+    "FC_RESP"   -> 2,
+    "FC_ACK"    -> 3,
+    "CMD"       -> 4,
+    "CMD_EOB"   -> 5,
+    "RESP"      -> 6,
+    "RESP_ERR"  -> 7
+    )
 }
 
-object NoCRBRegisters extends SpinalEnum(defaultEncoding=binarySequential) {
-  val NOC_ID,GLOBAL_PARAMS,FIFOSIZE,MTU,BLOCK_PORT_SIDS,USER_DATA,NOC_SHELL_COMPAT_NUM = newElement() 
-}
-
-object NoCRegisters extends SpinalEnum(defaultEncoding=binarySequential) {
-  val DATA_PKT,DATA_EOB_PKT,FC_RESP_PKT,FC_ACK_PKT,CMD_PKT,CMD_EOB_PKT,RESP_PKT,RESP_ERR_PKT = newElement() 
-}
 case class noc_shell(  NOC_ID : Int = 0,
   INPUT_PORTS : Int = 1,
   OUTPUT_PORTS : Int = 1,
@@ -244,25 +224,148 @@ case class noc_responder( SR_FLOW_CTRL_BYTES_PER_ACK : Int = 1,
   }
 }
 
+trait hasReg {
+  val ODWidth : Int
+  val RegAddr : Int
+  val at_rest : Int
+  val bus = new Bundle {
+    val set_stb = in Bool
+    val set_addr = in Bits(8 bits)
+    val set_data = in Bits(32 bits)
+  }
+  val setReg = setting_reg(RegAddr,ODWidth,at_reset)
+  setReg.io.strobe  := bus.set_stb
+  setReg.io.addr    := bus.set_addr
+  setReg.io.i       := bus.set_data
+  val buso          = setReg.io.o
+  // Bits(ODWidth bits)
+  // buso              
+  val buschanged    = setReg.io.changed
+
+}
 case class flow_control_responder(  WIDTH : Int = 64,
   SR_FLOW_CTRL_BYTES_PER_ACK : Int = 1,
   USE_TIME : Int = 0) extends Component {
   val io = new Bundle {
     val force_fc_pkt = in Bool
-    val clk = in Bool
     val clear = in Bool
     val fc = master Stream(axis(WIDTH,-1))
-    val set_stb = in Bool
-    val set_addr = in Bits(8 bits)
-    val set_data = in Bits(32 bits)
     val i = slave Stream(axis(WIDTH,-1))
-    val reset = in Bool
     val o = master Stream(axis(WIDTH,-1))
   }
+  val RegAddr = nocShell.nocSRRegisters("FLOW_CTRL_BYTES_PER_ACK")
+  val at_reset = 0
+  val ODWidth = 32
+  val enable_consumed = buso(31)
+  val bytes_per_ack = buso(30 downto 0)
+  val cvita = cVitaHdr(i.payload.data ## i.payload.data)
+  val flow_control = Stream(axis(64,128))
+  val fc_valid = RegInit(False)
+  val is_fc_ack = 
+  (B(3 bits, (2 downto 1) -> cvita.pkt_type, 0 -> eob) === B(nocShell.pktType("FC_ACK"),3 bits))
+  val is_data_pkt = 
+  (B(3 bits, (2 downto 1) -> cvita.pkt_type, 0 -> False) === B(nocShell.pktType("DATA"),3 bits))
+  val is_data_pkt_reg = RegInit(False)
+  val pkt_count = Reg(Bits(16 bits)) init(0)
+  val byte_count= Reg(Bits(32 bits)) init(0)
+  val resp_byte_count= Reg(Bits(32 bits)) init(0)
+  val fc_src_sid = Reg(Bits(16 bits)) init(0)
+  val fc_dst_sid = Reg(Bits(16 bits)) init(0)
+  val fc_vita_time = Reg(Bits(64 bits)) init(0)
+  
+  val fsm = new StateMachine{
+    val ST_IDLE : State = new State with EntryPoint {
+      whenIsActive {
+        when(io.i.fire) {
+          is_data_pkt_reg := is_data_pkt
+          when(is_fc_ack || is_data_pkt) {
+            fc_src_sid  := dst_sid;
+            fc_dst_sid  := src_sid;
+            byte_count  := byte_count + WIDTH/8
+            when(io.i.payload.last) {
+              goto(ST_IDLE)
+            }.elsewhen(cvita.has_time) {
+              goto(ST_TIME)
+            }.otherwise {
+              gotto(ST_PAYLOAD)
+            }
+          } otherwise {
+            goto(ST_DUMP)
+          }
+        }
+      }
+    }
+    val ST_TIME : State = new State {
+      whenIsActive {
+        when(io.i.fire) {
+          byte_count  := byte_count + WIDTH/8
+          when(io.i.payload.last) {
+            goto(ST_IDLE)
+          } otherwise {
+            goto(ST_PAYLOAD)
+          }
+        }
+      }
+    }
+    val ST_PAYLOAD : State = new State {
+      whenIsActive {
+        when(io.i.fire) {
+          when(io.i.payload.last) {
+            when(is_data_pkt_reg) {
+              pkt_count  := pkt_count + 1
+              byte_count := byte_count + WIDTH/8
+            } otherwise {
+              pkt_count  := io.i.payload.data(47 downto 32)
+              byte_count := io.i.payload.data(31 downto 0)
+            }
+            goto(ST_IDLE)
+          } otherwise {
+            byte_count := byte_count + WIDTH/8
+          }
+        }
+      }
+    }
+    val ST_DUMP : State = new State {
+      whenIsActive {
+        when(io.i.fire && io.i.payload.last) {
+          goto(ST_IDLE)
+        }
+      }
+    }
+  }
+  when(byte_count_since_resp >= bytes_per_ack.resized || io.force_fc_pkt) {
+    fc_valid := enable_consumed
+    resp_byte_count := byte_count
+    resp_pkt_count := pkt_count
+  }.elsewhen(flow_control.fire) {
+    fc_valid := False
+  }
+  flow_control.valid := fc_valid
+  val resp_cvita = new cVitaHdr
+  
+  val dump = (isActive(ST_IDLE) && !is_data_pkt) || (!isActive(ST_IDLE) && !is_data_pkt_reg);
+  io.o.valid := Mux(dump, False, io.i.valid)
+  io.i.ready := Mux(dump, True , io.o.ready)
+  io.o.payload.data  := io.i.payload.data
+  io.o.payload.last  := io.i.payload.last
+
+  flow_control.payload.data := resp_pkt_count ## resp_byte_count
+  flow_control.payload.last := Ture
+  resp_cvita.pkt_type := B(nocShell.pktType("FC_RESP") >> 1, 2 bits)
+  resp_cvita.eob := B(nocShell.pktType("FC_RESP") & 1, 1 bits)(0)
+  resp_cvita.has_time := if(USE_TIME==0) Fasle else True
+  
+  cvita_hdr_encoder cvita_hdr_encoder_fc (
+    .pkt_type(FC_RESP_PKT[2:1]), .eob(FC_RESP_PKT[0]), .has_time(USE_TIME[0]),
+    .seqnum(12'd0),         // Don't care, handled by chdr framer
+    .payload_length(16'd0), // Don't care, handled by chdr framer
+    .src_sid(fc_src_sid), .dst_sid(fc_dst_sid),
+    .vita_time(USE_TIME[0] ? fc_vita_time : 64'd0),
+    .header(flow_ctrl_tuser));
 }
 
 case class packet_error_responder(  SR_ERROR_POLICY : Int = 1,
-  USE_TIME : Int = 0) extends Component {
+  USE_TIME : Int = 0) extends Component with hasReg{
   val io = new Bundle {
     val seqnum_error = out Bool
     val clear = in Bool
@@ -274,17 +377,15 @@ case class packet_error_responder(  SR_ERROR_POLICY : Int = 1,
     val sid = in Bits(32 bits)
     val o = master Stream(axis(64,-1))
   }
+  val RegAddr = nocShell.nocSRRegisters("ERROR_POLICY")
+  val ODWidth = 4
+  val at_reset = 5
   val parser = cvita_hdr_parser(true)
-  val setReg = setting_reg(4,4,5)
-    //NoCSRRegisters.mapping(ERROR_POLICY),4,5)
-  setReg.io.strobe := io.set_stb
-  setReg.io.addr := io.set_addr
-  setReg.io.i := io.set_data
-  val policy_wait_until_next_burst = setReg.io.o(3)
-  val policy_wait_until_next_packet = setReg.io.o(2)
-  val policy_continue = setReg.io.o(1)
-  val send_error_pkt = setReg.io.o(0)
-  val clear_error = setReg.io.changed
+  val policy_wait_until_next_burst = buso(3)
+  val policy_wait_until_next_packet = buso(2)
+  val policy_continue = buso(1)
+  val send_error_pkt = buso(0)
+  val clear_error = buschanged
   val hdr_stb = Bool
   val int = Stream(axis(64,-1))
   val drop = Stream(axis(64,-1))
