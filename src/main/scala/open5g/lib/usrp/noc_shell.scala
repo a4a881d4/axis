@@ -2,6 +2,7 @@ package open5g.lib.usrp
 
 import spinal.core._
 import spinal.lib._
+import spinal.lib.fsm._
 import open5g.lib.axis.axis
 
 object nocShell {
@@ -225,27 +226,25 @@ case class noc_responder( SR_FLOW_CTRL_BYTES_PER_ACK : Int = 1,
 }
 
 trait hasReg {
-  val ODWidth : Int
-  val RegAddr : Int
-  val at_rest : Int
+  def ODWidth : Int
+  def RegAddr : Int
+  def at_reset : Int
   val bus = new Bundle {
     val set_stb = in Bool
     val set_addr = in Bits(8 bits)
     val set_data = in Bits(32 bits)
   }
-  val setReg = setting_reg(RegAddr,ODWidth,at_reset)
+  val setReg = setting_reg(RegAddr,8,ODWidth,at_reset)
   setReg.io.strobe  := bus.set_stb
   setReg.io.addr    := bus.set_addr
   setReg.io.i       := bus.set_data
   val buso          = setReg.io.o
-  // Bits(ODWidth bits)
-  // buso              
   val buschanged    = setReg.io.changed
 
 }
 case class flow_control_responder(  WIDTH : Int = 64,
   SR_FLOW_CTRL_BYTES_PER_ACK : Int = 1,
-  USE_TIME : Int = 0) extends Component {
+  USE_TIME : Int = 0) extends Component with hasReg {
   val io = new Bundle {
     val force_fc_pkt = in Bool
     val clear = in Bool
@@ -253,41 +252,43 @@ case class flow_control_responder(  WIDTH : Int = 64,
     val i = slave Stream(axis(WIDTH,-1))
     val o = master Stream(axis(WIDTH,-1))
   }
-  val RegAddr = nocShell.nocSRRegisters("FLOW_CTRL_BYTES_PER_ACK")
-  val at_reset = 0
-  val ODWidth = 32
+  def RegAddr = nocShell.nocSRRegisters("FLOW_CTRL_BYTES_PER_ACK")
+  def at_reset = 0
+  def ODWidth = 32
   val enable_consumed = buso(31)
-  val bytes_per_ack = buso(30 downto 0)
-  val cvita = cVitaHdr(i.payload.data ## i.payload.data)
+  val bytes_per_ack = buso(30 downto 0).asUInt
+  val cvita = cVitaHdr(io.i.payload.data ## io.i.payload.data)
   val flow_control = Stream(axis(64,128))
   val fc_valid = RegInit(False)
   val is_fc_ack = 
-  (B(3 bits, (2 downto 1) -> cvita.pkt_type, 0 -> eob) === B(nocShell.pktType("FC_ACK"),3 bits))
+  (B(3 bits, (2 downto 1) -> cvita.pkt_type, 0 -> cvita.eob) === B(nocShell.pktType("FC_ACK"),3 bits))
   val is_data_pkt = 
   (B(3 bits, (2 downto 1) -> cvita.pkt_type, 0 -> False) === B(nocShell.pktType("DATA"),3 bits))
   val is_data_pkt_reg = RegInit(False)
-  val pkt_count = Reg(Bits(16 bits)) init(0)
-  val byte_count= Reg(Bits(32 bits)) init(0)
-  val resp_byte_count= Reg(Bits(32 bits)) init(0)
+  val pkt_count = Reg(UInt(16 bits)) init(0)
+  val byte_count= Reg(UInt(32 bits)) init(0)
+  val resp_pkt_count= Reg(UInt(16 bits)) init(0)
+  val resp_byte_count= Reg(UInt(32 bits)) init(0)
+
   val fc_src_sid = Reg(Bits(16 bits)) init(0)
   val fc_dst_sid = Reg(Bits(16 bits)) init(0)
   val fc_vita_time = Reg(Bits(64 bits)) init(0)
   
-  val fsm = new StateMachine{
+  val fsm = new StateMachine {
     val ST_IDLE : State = new State with EntryPoint {
       whenIsActive {
         when(io.i.fire) {
           is_data_pkt_reg := is_data_pkt
           when(is_fc_ack || is_data_pkt) {
-            fc_src_sid  := dst_sid;
-            fc_dst_sid  := src_sid;
+            fc_src_sid  := cvita.dst_sid;
+            fc_dst_sid  := cvita.src_sid;
             byte_count  := byte_count + WIDTH/8
             when(io.i.payload.last) {
               goto(ST_IDLE)
             }.elsewhen(cvita.has_time) {
               goto(ST_TIME)
             }.otherwise {
-              gotto(ST_PAYLOAD)
+              goto(ST_PAYLOAD)
             }
           } otherwise {
             goto(ST_DUMP)
@@ -315,8 +316,8 @@ case class flow_control_responder(  WIDTH : Int = 64,
               pkt_count  := pkt_count + 1
               byte_count := byte_count + WIDTH/8
             } otherwise {
-              pkt_count  := io.i.payload.data(47 downto 32)
-              byte_count := io.i.payload.data(31 downto 0)
+              pkt_count  := io.i.payload.data(47 downto 32).asUInt
+              byte_count := io.i.payload.data(31 downto 0).asUInt
             }
             goto(ST_IDLE)
           } otherwise {
@@ -332,8 +333,12 @@ case class flow_control_responder(  WIDTH : Int = 64,
         }
       }
     }
+    val dump = (isActive(ST_IDLE) && !is_data_pkt) || (!isActive(ST_IDLE) && !is_data_pkt_reg);
+    io.o.valid := Mux(dump, False, io.i.valid)
+    io.i.ready := Mux(dump, True , io.o.ready)
   }
-  when(byte_count_since_resp >= bytes_per_ack.resized || io.force_fc_pkt) {
+  val byte_count_since_resp = byte_count - resp_byte_count
+  when(byte_count_since_resp >= bytes_per_ack || io.force_fc_pkt) {
     fc_valid := enable_consumed
     resp_byte_count := byte_count
     resp_pkt_count := pkt_count
@@ -343,25 +348,24 @@ case class flow_control_responder(  WIDTH : Int = 64,
   flow_control.valid := fc_valid
   val resp_cvita = new cVitaHdr
   
-  val dump = (isActive(ST_IDLE) && !is_data_pkt) || (!isActive(ST_IDLE) && !is_data_pkt_reg);
-  io.o.valid := Mux(dump, False, io.i.valid)
-  io.i.ready := Mux(dump, True , io.o.ready)
   io.o.payload.data  := io.i.payload.data
   io.o.payload.last  := io.i.payload.last
-
-  flow_control.payload.data := resp_pkt_count ## resp_byte_count
-  flow_control.payload.last := Ture
+  flow_control.payload.data(63 downto 48) := B(0,16 bits)
+  flow_control.payload.data(47 downto 32) := resp_pkt_count.asBits
+  flow_control.payload.data(31 downto 0) := resp_byte_count.asBits
+  flow_control.payload.last := True
   resp_cvita.pkt_type := B(nocShell.pktType("FC_RESP") >> 1, 2 bits)
   resp_cvita.eob := B(nocShell.pktType("FC_RESP") & 1, 1 bits)(0)
-  resp_cvita.has_time := if(USE_TIME==0) Fasle else True
-  
-  cvita_hdr_encoder cvita_hdr_encoder_fc (
-    .pkt_type(FC_RESP_PKT[2:1]), .eob(FC_RESP_PKT[0]), .has_time(USE_TIME[0]),
-    .seqnum(12'd0),         // Don't care, handled by chdr framer
-    .payload_length(16'd0), // Don't care, handled by chdr framer
-    .src_sid(fc_src_sid), .dst_sid(fc_dst_sid),
-    .vita_time(USE_TIME[0] ? fc_vita_time : 64'd0),
-    .header(flow_ctrl_tuser));
+  resp_cvita.has_time := (if(USE_TIME == 0) False else True)
+  resp_cvita.seqnum := B(0,12 bits)
+  resp_cvita.src_sid := fc_src_sid
+  resp_cvita.dst_sid := fc_dst_sid
+  resp_cvita.vita_time := (if(USE_TIME == 0) B(0,64 bits) else fc_vita_time)
+  flow_control.payload.user := resp_cvita.encode
+  val chdr_framer_fc_pkt = chdr_framer(1,false)
+  chdr_framer_fc_pkt.io.i << flow_control
+  chdr_framer_fc_pkt.io.o >> io.fc
+  chdr_framer_fc_pkt.io.clear := False  
 }
 
 case class packet_error_responder(  SR_ERROR_POLICY : Int = 1,
@@ -436,9 +440,9 @@ case class packet_error_responder(  SR_ERROR_POLICY : Int = 1,
   B"1" ## B(0,12 bits) ## B(0,16 bits) ## 
   io.sid ## cvita.vita_time
   error.payload.last := True
-  val chdr_framer_resp_pkt = chdr_framer(1,64)
+  val chdr_framer_resp_pkt = chdr_framer(1,false)
   chdr_framer_resp_pkt.io.i << error
-  chdr_framer_resp_pkt.io.i >> io.resp
+  chdr_framer_resp_pkt.io.o >> io.resp
   chdr_framer_resp_pkt.io.clear := False  
 }
 
@@ -548,11 +552,91 @@ case class setting_reg( my_addr : Int = 0,
 }
 
 case class chdr_framer( SIZE : Int = 10,
-  WIDTH : Int = 32,
-  USE_SEQ_NUM : Int = 0) extends Component {
+  USE_SEQ_NUM : Boolean = false) extends Component {
   val io = new Bundle {
     val clear = in Bool
     val i = slave Stream(axis(64,128))
     val o = master Stream(axis(64,-1))
+  }
+  val length = Reg(UInt(16 bits)) init 0
+  val seqnum = Reg(UInt(12 bits)) init 0
+  
+  val bodyi = Stream(axis(64,-1))
+  val bodyo = Stream(axis(64,-1))
+  val headeri = Stream(Bits(128 bits))
+  val headero = Stream(Bits(128 bits))
+  io.i.ready := headeri.ready && bodyi.ready
+  headeri.valid := io.i.payload.last && io.i.valid && headeri.ready && bodyi.ready
+  bodyi.payload.last := io.i.payload.last
+  bodyi.valid := io.i.valid
+  
+  when(headeri.fire) {
+    length := 8
+  }.elsewhen(io.i.fire) {
+    length := length + 8
+  }
+  
+  headeri.payload := io.i.payload.user(127 downto 112) ## length ## io.i.payload.user(95 downto 0)
+  headeri >-> headero
+  bodyi.payload.data := io.i.payload.data
+  val fifod = StreamFifo(axis(64,-1),SIZE)
+  fifod.io.push << bodyi
+  fifod.io.pop >> bodyo
+  val fsm = new StateMachine{
+    val ST_IDLE : State = new State with EntryPoint {
+      whenIsActive {
+        when(headero.valid && bodyo.valid) {
+          goto(ST_HEAD)
+        }
+      }
+    }
+    val ST_HEAD : State = new State {
+      whenIsActive {
+        when(io.o.ready) {
+          when(headero.payload(125)) {
+            goto(ST_TIME)
+          } otherwise {
+            goto(ST_BODY)
+          }
+        }
+      }
+    }
+    val ST_TIME : State = new State {
+      whenIsActive {
+        when(io.o.ready) {
+          goto(ST_BODY)
+        }  
+      }
+    }
+    val ST_BODY : State = new State {
+      whenIsActive {
+        when(io.o.ready && bodyo.payload.last) {
+          goto(ST_IDLE)
+        }
+      }
+    }
+    val out_length = UInt(16 bits)
+    when(headero.payload(125)) {
+      out_length := headero.payload(111 downto 96).asUInt + 16 
+    } otherwise {
+      out_length := headero.payload(111 downto 96).asUInt + 8 
+    }
+    io.o.valid := isActive(ST_HEAD) || isActive(ST_TIME) || (bodyo.valid && isActive(ST_BODY))
+    io.o.payload.last := isActive(ST_BODY) && bodyo.payload.last
+    when(isActive(ST_HEAD)) {
+      io.o.payload.data := headero.payload(127 downto 124) ## 
+      (if(USE_SEQ_NUM) seqnum else headero.payload(123 downto 112)) ##
+      out_length ## headero.payload(95 downto 64)
+    }.elsewhen(isActive(ST_TIME)){
+      io.o.payload.data := headero.payload(63 downto 0)
+    }.otherwise {
+      io.o.payload.data := bodyo.payload.data
+    }
+    bodyo.ready := isActive(ST_BODY) && io.o.ready
+    headero.ready := (isActive(ST_TIME) || (isActive(ST_HEAD) && !headero.payload(125))) && io.o.ready
+  }
+
+  when(io.o.fire && io.o.payload.last) {
+    seqnum := seqnum + 1     
   }
 }
