@@ -6,7 +6,7 @@ import spinal.sim._
 import spinal.core.sim._
 
 import open5g.lib.usrp._
-import open5g.lib.axis.axis
+import open5g.lib.axis.{axis,axisu}
 
 import java.io.{File, FileWriter, BufferedWriter, PrintWriter}
 import scala.io.Source
@@ -30,13 +30,13 @@ class frame extends Component {
   val io = new Bundle {
     val mac_src = in Bits(48 bits)
     val ip_src = in Bits(32 bits)
-    val IN = slave Stream(axis(64,-1))
+    val IN = slave Stream(axis(64))
     val clk = in Bool
     val clear = in Bool
     val set_stb = in Bool
     val set_addr = in Bits(8 bits)
     val set_data = in Bits(32 bits)
-    val OUT = master Stream(axis(64,4))
+    val OUT = master Stream(axisu(64,4))
     val debug = out Bits(32 bits)
     val udp_src = in Bits(16 bits)
     val reset = in Bool

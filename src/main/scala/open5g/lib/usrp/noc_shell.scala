@@ -3,7 +3,7 @@ package open5g.lib.usrp
 import spinal.core._
 import spinal.lib._
 import spinal.lib.fsm._
-import open5g.lib.axis.axis
+import open5g.lib.axis.{axis,axisu}
 
 object nocShell {
   val nocSRRegisters = Map(
@@ -58,7 +58,7 @@ case class noc_shell(  NOC_ID : Int = 0,
     val bus_clk = in Bool
     val bus_rst = in Bool
     val clk = in Bool
-    val str_src = Vec(slave Stream(axis(64,-1)),OUTPUT_PORTS)
+    val str_src = Vec(slave Stream(axis(64)),OUTPUT_PORTS)
     val next_dst_sid = out Vec(Bits(16 bits),OUTPUT_PORTS)
     val set_data = out Vec(Bits(32 bits),BLOCK_PORTS)
     val set_addr = out Vec(Bits(8 bits),BLOCK_PORTS)
@@ -68,17 +68,17 @@ case class noc_shell(  NOC_ID : Int = 0,
     val rb_stb = in Bits(BLOCK_PORTS bits)
     val rb_addr = out Vec(Bits(8 bits),BLOCK_PORTS)
     val rb_data = in Vec(Bits(64 bits),BLOCK_PORTS)
-    val i = slave Stream(axis(64,-1))
+    val i = slave Stream(axis(64))
     val debug = out Bits(64 bits)
     val clear_tx_seqnum = out Bits(OUTPUT_PORTS bits)
-    val cmdout = slave Stream(axis(64,-1))
+    val cmdout = slave Stream(axis(64))
     val set_has_time = out Bits(BLOCK_PORTS bits)
-    val str_sink = Vec(master Stream(axis(64,-1)),INPUT_PORTS)
+    val str_sink = Vec(master Stream(axis(64)),INPUT_PORTS)
     val src_sid = out Vec(Bits(16 bits),BLOCK_PORTS)
     val resp_out_dst_sid = out Vec(Bits(16 bits),OUTPUT_PORTS)
     val reset = in Bool
-    val ackin = master Stream(axis(64,-1))
-    val o = master Stream(axis(64,-1))
+    val ackin = master Stream(axis(64))
+    val o = master Stream(axis(64))
     val vita_time = in Bits(64 bits)
   }
 
@@ -92,13 +92,13 @@ case class noc_output_port( SR_FLOW_CTRL_EN : Int = 0,
   USE_GATE : Int = 0) extends Component {
   val io = new Bundle {
     val clk = in Bool
-    val str_src = slave Stream(axis(64,-1))
+    val str_src = slave Stream(axis(64))
     val clear = in Bool
     val set_stb = in Bool
     val set_addr = in Bits(8 bits)
     val set_data = in Bits(32 bits)
-    val dataout = master Stream(axis(64,-1))
-    val fcin = slave Stream(axis(64,-1))
+    val dataout = master Stream(axis(64))
+    val fcin = slave Stream(axis(64))
     val reset = in Bool
   }
 }
@@ -110,14 +110,14 @@ case class noc_input_port(  SR_FLOW_CTRL_BYTES_PER_ACK : Int = 1,
   val io = new Bundle {
     val clk = in Bool
     val clear = in Bool
-    val fc = master Stream(axis(64,-1))
+    val fc = master Stream(axis(64))
     val set_stb = in Bool
     val set_addr = in Bits(8 bits)
     val set_data = in Bits(32 bits)
-    val i = slave Stream(axis(64,-1))
+    val i = slave Stream(axis(64))
     val reset = in Bool
     val resp_sid = in Bits(32 bits)
-    val o = master Stream(axis(64,-1))
+    val o = master Stream(axis(64))
   }
 }
 
@@ -128,13 +128,13 @@ case class axi_mux( PRIO : Int = 0,
   SIZE : Int = 4) extends Component {
   val io = new Bundle {
     val clear = in Bool
-    val i = Vec(slave Stream(axis(WIDTH,-1)),SIZE)
-    val o = master Stream(axis(WIDTH,-1))
+    val i = Vec(slave Stream(axis(WIDTH)),SIZE)
+    val o = master Stream(axis(WIDTH))
   }
-  val input = Vec(Stream(axis(WIDTH,-1)),SIZE)
-  val output = Stream(axis(WIDTH,-1))
+  val input = Vec(Stream(axis(WIDTH)),SIZE)
+  val output = Stream(axis(WIDTH))
   if(PRE_FIFO_SIZE > 0) {
-    val fifos = List.fill(SIZE)(StreamFifo(dataType = axis(WIDTH,-1), depth = PRE_FIFO_SIZE))
+    val fifos = List.fill(SIZE)(StreamFifo(dataType = axis(WIDTH), depth = PRE_FIFO_SIZE))
     for(i <- 0 until SIZE) {
       fifos(i).io.push << io.i(i)
       fifos(i).io.pop >> input(i)
@@ -187,7 +187,7 @@ case class axi_mux( PRIO : Int = 0,
   output.valid        := input(st_port).valid
 
   if(POST_FIFO_SIZE > 0) {
-    val fifoO = StreamFifo(dataType = axis(WIDTH,-1), depth = POST_FIFO_SIZE)
+    val fifoO = StreamFifo(dataType = axis(WIDTH), depth = POST_FIFO_SIZE)
     fifoO.io.push << output
     fifoO.io.pop >> io.o
     fifoO.io.flush := io.clear
@@ -199,10 +199,10 @@ case class axi_mux( PRIO : Int = 0,
 case class chdr_fifo_large( SIZE : Int = 12 ) extends Component {
   val io = new Bundle {
     val clear = in Bool
-    val i = slave Stream(axis(64,-1))
-    val o = master Stream(axis(64,-1))
+    val i = slave Stream(axis(64))
+    val o = master Stream(axis(64))
   }
-  val fifoI = StreamFifo( dataType = axis(64,-1), depth = (1 << SIZE))
+  val fifoI = StreamFifo( dataType = axis(64), depth = (1 << SIZE))
   fifoI.io.push << io.i
   fifoI.io.pop >> io.o
   fifoI.io.flush := io.clear
@@ -212,28 +212,42 @@ case class noc_responder( SR_FLOW_CTRL_BYTES_PER_ACK : Int = 1,
   SR_ERROR_POLICY : Int = 2,
   USE_TIME : Int = 0) extends Component {
   val io = new Bundle {
-    val clk = in Bool
     val clear = in Bool
-    val fc = master Stream(axis(64,-1))
-    val set_stb = in Bool
-    val set_addr = in Bits(8 bits)
-    val set_data = in Bits(32 bits)
-    val i = slave Stream(axis(64,-1))
-    val reset = in Bool
-    val resp = master Stream(axis(64,-1))
-    val o = master Stream(axis(64,-1))
+    val resp_sid = in Bits(32 bits)
+    val fc = master Stream(axis(64))
+    val i = slave Stream(axis(64))
+    val resp = master Stream(axis(64))
+    val o = master Stream(axis(64))
   }
+  val bus = slave(new regBus)
+  val respFC = flow_control_responder(SR_FLOW_CTRL_BYTES_PER_ACK=SR_FLOW_CTRL_BYTES_PER_ACK,USE_TIME=USE_TIME)
+  val respPE = packet_error_responder(SR_ERROR_POLICY=SR_ERROR_POLICY,USE_TIME=USE_TIME)
+  bus <> respPE.bus
+  bus <> respFC.bus
+  val int = Stream(axis(64))
+  respFC.io.force_fc_pkt := respPE.io.seqnum_error
+  respFC.io.i << io.i
+  io.fc << respFC.io.fc
+  int << respFC.io.o
+  respPE.io.i << int
+  io.o << respPE.io.o
+  io.resp << respPE.io.resp
+  respPE.io.sid := io.resp_sid
 }
 
+class regBus extends Bundle with IMasterSlave {
+  val set_stb = Bool
+  val set_addr = Bits(8 bits)
+  val set_data = Bits(32 bits)
+  def asMaster = {
+    out(set_stb,set_addr,set_data)
+  }  
+}
 trait hasReg {
   def ODWidth : Int
   def RegAddr : Int
   def at_reset : Int
-  val bus = new Bundle {
-    val set_stb = in Bool
-    val set_addr = in Bits(8 bits)
-    val set_data = in Bits(32 bits)
-  }
+  val bus = slave (new regBus)
   val setReg = setting_reg(RegAddr,8,ODWidth,at_reset)
   setReg.io.strobe  := bus.set_stb
   setReg.io.addr    := bus.set_addr
@@ -248,9 +262,9 @@ case class flow_control_responder(  WIDTH : Int = 64,
   val io = new Bundle {
     val force_fc_pkt = in Bool
     val clear = in Bool
-    val fc = master Stream(axis(WIDTH,-1))
-    val i = slave Stream(axis(WIDTH,-1))
-    val o = master Stream(axis(WIDTH,-1))
+    val fc = master Stream(axis(WIDTH))
+    val i = slave Stream(axis(WIDTH))
+    val o = master Stream(axis(WIDTH))
   }
   def RegAddr = nocShell.nocSRRegisters("FLOW_CTRL_BYTES_PER_ACK")
   def at_reset = 0
@@ -258,7 +272,7 @@ case class flow_control_responder(  WIDTH : Int = 64,
   val enable_consumed = buso(31)
   val bytes_per_ack = buso(30 downto 0).asUInt
   val cvita = cVitaHdr(io.i.payload.data ## io.i.payload.data)
-  val flow_control = Stream(axis(64,128))
+  val flow_control = Stream(axisu(64,128))
   val fc_valid = RegInit(False)
   val is_fc_ack = 
   (B(3 bits, (2 downto 1) -> cvita.pkt_type, 0 -> cvita.eob) === B(nocShell.pktType("FC_ACK"),3 bits))
@@ -360,9 +374,10 @@ case class flow_control_responder(  WIDTH : Int = 64,
   resp_cvita.seqnum := B(0,12 bits)
   resp_cvita.src_sid := fc_src_sid
   resp_cvita.dst_sid := fc_dst_sid
+  resp_cvita.length := B(0,16 bits)
   resp_cvita.vita_time := (if(USE_TIME == 0) B(0,64 bits) else fc_vita_time)
   flow_control.payload.user := resp_cvita.encode
-  val chdr_framer_fc_pkt = chdr_framer(1,false)
+  val chdr_framer_fc_pkt = chdr_framer(2,false)
   chdr_framer_fc_pkt.io.i << flow_control
   chdr_framer_fc_pkt.io.o >> io.fc
   chdr_framer_fc_pkt.io.clear := False  
@@ -376,14 +391,14 @@ case class packet_error_responder(  SR_ERROR_POLICY : Int = 1,
     val set_stb = in Bool
     val set_addr = in Bits(8 bits)
     val set_data = in Bits(32 bits)
-    val i = slave Stream(axis(64,-1))
-    val resp = master Stream(axis(64,-1))
+    val i = slave Stream(axis(64))
+    val resp = master Stream(axis(64))
     val sid = in Bits(32 bits)
-    val o = master Stream(axis(64,-1))
+    val o = master Stream(axis(64))
   }
-  val RegAddr = nocShell.nocSRRegisters("ERROR_POLICY")
-  val ODWidth = 4
-  val at_reset = 5
+  def RegAddr = nocShell.nocSRRegisters("ERROR_POLICY")
+  def ODWidth = 4
+  def at_reset = 5
   val parser = cvita_hdr_parser(true)
   val policy_wait_until_next_burst = buso(3)
   val policy_wait_until_next_packet = buso(2)
@@ -391,8 +406,8 @@ case class packet_error_responder(  SR_ERROR_POLICY : Int = 1,
   val send_error_pkt = buso(0)
   val clear_error = buschanged
   val hdr_stb = Bool
-  val int = Stream(axis(64,-1))
-  val drop = Stream(axis(64,-1))
+  val int = Stream(axis(64))
+  val drop = Stream(axis(64))
   val cvita = new cVitaHdr
   parser.io.cvita <> cvita
   parser.io.i << io.i
@@ -401,7 +416,7 @@ case class packet_error_responder(  SR_ERROR_POLICY : Int = 1,
   val seqnum_expected = Reg(UInt(12 bits)) init(0)
   val seqnum_hold = Reg(UInt(12 bits)) init(0)
   val seqnum_error = (seqnum_expected =/= cvita.seqnum.asUInt) && hdr_stb
-  val error = Stream(axis(64,128))
+  val error = Stream(axisu(64,128))
   val packet_consumed = int.valid && int.ready && int.last
   val error_tvalid, error_hold, clear_error_hold = RegInit(False)
   val first_packet = RegInit(True)
@@ -431,19 +446,23 @@ case class packet_error_responder(  SR_ERROR_POLICY : Int = 1,
     first_packet := False
   }
   error.valid := error_tvalid
-  drop := int.throwWhen(False)//)
-  val CODE_SEQ_ERROR = B(4,32 bits) ## B(0,4 bits) ## seqnum_expected ## B(0,4 bits) ## seqnum_hold
-  val CODE_SEQ_ERROR_MIDBURST = B(32,32 bits) ## B(0,4 bits) ## seqnum_expected ## B(0,4 bits) ## seqnum_hold
-  val error.payload.data = Mux(first_packet,CODE_SEQ_ERROR,CODE_SEQ_ERROR_MIDBURST)
-  val error.payload.user = B"11" ## 
-  (if(USE_TIME == 0) B"0" else B"0")  ##
-  B"1" ## B(0,12 bits) ## B(0,16 bits) ## 
-  io.sid ## cvita.vita_time
+  drop << int.throwWhen(!(seqnum_error || error_hold) || policy_continue)
+  io.o << drop
+  val CODE_SEQ_ERROR = B(4,32 bits) ## B(0,4 bits) ## seqnum_expected ## 
+  B(0,4 bits) ## seqnum_hold
+  val CODE_SEQ_ERROR_MIDBURST = B(32,32 bits) ## B(0,4 bits) ## seqnum_expected ## 
+  B(0,4 bits) ## seqnum_hold
+  error.payload.data := (first_packet ? CODE_SEQ_ERROR | CODE_SEQ_ERROR_MIDBURST)
+  error.payload.user := B"11" ## // 2
+  (if(USE_TIME == 0) B"0" else B"1")  ## // 1
+  B"1" ## B(0,12 bits) ## B(0,16 bits) ## // 1+12+16
+  io.sid ## cvita.vita_time // 16
   error.payload.last := True
-  val chdr_framer_resp_pkt = chdr_framer(1,false)
+  val chdr_framer_resp_pkt = chdr_framer(2,false)
   chdr_framer_resp_pkt.io.i << error
   chdr_framer_resp_pkt.io.o >> io.resp
   chdr_framer_resp_pkt.io.clear := False  
+  io.seqnum_error := seqnum_error
 }
 
 object cVitaHdr {
@@ -489,8 +508,8 @@ case class cvita_hdr_parser(REGISTER : Boolean = true) extends Component {
     val clear = in Bool
     val vita_time_stb = out Bool
     val hdr_stb = out Bool
-    val i = slave Stream(axis(64,-1))
-    val o = master Stream(axis(64,-1))
+    val i = slave Stream(axis(64))
+    val o = master Stream(axis(64))
     val cvita = master (new cVitaHdr)
   }
   val header = Reg(Bits(128 bits)) init 0
@@ -499,7 +518,7 @@ case class cvita_hdr_parser(REGISTER : Boolean = true) extends Component {
   val firstTime = RegInit(True)
   val firstLine = RegInit(True)
   val readTime  = RegInit(False)
-  val output = Stream(axis(64,-1))
+  val output = Stream(axis(64))
   
   io.cvita := cvita
   io.payload_length := cvita.payload_length
@@ -555,14 +574,14 @@ case class chdr_framer( SIZE : Int = 10,
   USE_SEQ_NUM : Boolean = false) extends Component {
   val io = new Bundle {
     val clear = in Bool
-    val i = slave Stream(axis(64,128))
-    val o = master Stream(axis(64,-1))
+    val i = slave Stream(axisu(64,128))
+    val o = master Stream(axis(64))
   }
   val length = Reg(UInt(16 bits)) init 0
   val seqnum = Reg(UInt(12 bits)) init 0
   
-  val bodyi = Stream(axis(64,-1))
-  val bodyo = Stream(axis(64,-1))
+  val bodyi = Stream(axis(64))
+  val bodyo = Stream(axis(64))
   val headeri = Stream(Bits(128 bits))
   val headero = Stream(Bits(128 bits))
   io.i.ready := headeri.ready && bodyi.ready
@@ -579,9 +598,11 @@ case class chdr_framer( SIZE : Int = 10,
   headeri.payload := io.i.payload.user(127 downto 112) ## length ## io.i.payload.user(95 downto 0)
   headeri >-> headero
   bodyi.payload.data := io.i.payload.data
-  val fifod = StreamFifo(axis(64,-1),SIZE)
+  val fifod = StreamFifo(dataType = axis(64),depth = SIZE)
   fifod.io.push << bodyi
   fifod.io.pop >> bodyo
+  fifod.io.flush := io.clear
+
   val fsm = new StateMachine{
     val ST_IDLE : State = new State with EntryPoint {
       whenIsActive {
@@ -639,4 +660,48 @@ case class chdr_framer( SIZE : Int = 10,
   when(io.o.fire && io.o.payload.last) {
     seqnum := seqnum + 1     
   }
+}
+
+case class source_flow_control( WIDTH : Int = 64,
+  SR_FLOW_CTRL_EN : Int = 0,
+  SR_FLOW_CTRL_WINDOW_SIZE : Int = 1,
+  SR_FLOW_CTRL_PKT_LIMIT : Int = 2) extends Component {
+  val io = new Bundle {
+    val i = slave Stream(axis(64))
+    val clear = in Bool
+    val fc = slave Stream(axis(64))
+    val set_stb = in Bool
+    val set_addr = in Bits(8 bits)
+    val set_data = in Bits(32 bits)
+    val o = master Stream(axis(64))
+    val reset = in Bool
+    val busy = out Bool
+  }
+  
+}
+case class cmd_pkt_proc(  SR_AWIDTH : Int = 8,
+  SR_DWIDTH : Int = 32,
+  RB_AWIDTH : Int = 8,
+  RB_USER_AWIDTH : Int = 8,
+  RB_DWIDTH : Int = 64,
+  USE_TIME : Int = 1,
+  SR_RB_ADDR : Int = 0,
+  SR_RB_ADDR_USER : Int = 1,
+  FIFO_SIZE : Int = 5) extends Component {
+  val io = new Bundle {
+    val clear = in Bool
+    val set_stb = out Bool
+    val set_addr = out Bits(SR_AWIDTH bits)
+    val set_data = out Bits(SR_DWIDTH bits)
+    val set_time = out Bits(64 bits)
+    val rb_stb = in Bool
+    val rb_data = in Bits(RB_DWIDTH bits)
+    val rb_addr = out Bits(RB_AWIDTH bits)
+    val cmd = slave Stream(axis(64))
+    val set_has_time = out Bool
+    val rb_addr_user = out Bits(RB_USER_AWIDTH bits)
+    val resp = master Stream(axis(64))
+    val vita_time = in Bits(64 bits)
+  }
+  
 }

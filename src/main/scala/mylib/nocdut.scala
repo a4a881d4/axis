@@ -9,6 +9,6 @@ import open5g.lib.usrp._
 
 object MyNocGen {
   def main(args: Array[String]) {
-    SpinalVerilog(new flow_control_responder())
+    SpinalVerilog(new noc_responder())
   }
 } 
