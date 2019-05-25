@@ -60,7 +60,7 @@ case class noc_shell(  NOC_ID : Int = 0,
     val bus_clk = in Bool
     val bus_rst = in Bool
     val clk = in Bool
-    val str_src = Vec(slave Stream(axis(64)),OUTPUT_PORTS)
+    val str_src = Vec(slave Stream(axis(64)),INPUT_PORTS)
     val next_dst_sid = out Vec(Bits(16 bits),OUTPUT_PORTS)
     val set_data = out Vec(Bits(32 bits),BLOCK_PORTS)
     val set_addr = out Vec(Bits(8 bits),BLOCK_PORTS)
@@ -83,7 +83,15 @@ case class noc_shell(  NOC_ID : Int = 0,
     val o = master Stream(axis(64))
     val vita_time = in Bits(64 bits)
   }
-
+  val clockBus = ClockDomain(io.bus_clk,io.bus_rst)
+  val clockSys = ClockDomain(io.clk,io.reset)
+  val ackin_2clk = StreamFifoCC(dataType = axis(64),
+    depth = (1 << 5),
+    pushClock = clockBus,
+    popClock = clockSys)
+  ackin_2clk.io.push << ackin_bclk
+  ackin_2clk.io.pop >> io.ackin
+  ackin_2clk.io.flush := False
 }
 
 case class noc_output_port( SR_FLOW_CTRL_EN : Int = 0,
