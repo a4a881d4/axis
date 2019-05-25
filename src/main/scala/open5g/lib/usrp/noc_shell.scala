@@ -42,6 +42,8 @@ object nocShell {
     "RESP"      -> 6,
     "RESP_ERR"  -> 7
     )
+  def pkt_type(pt:String) = B(pktType(pt) >> 1, 2 bits)
+  def eob(pt:String) = Bool((pktType(pt)&1) == 1)
 }
 
 case class noc_shell(  NOC_ID : Int = 0,
@@ -88,37 +90,63 @@ case class noc_output_port( SR_FLOW_CTRL_EN : Int = 0,
   SR_FLOW_CTRL_WINDOW_SIZE : Int = 1,
   SR_FLOW_CTRL_PKT_LIMIT : Int = 2,
   PORT_NUM : Int = 0,
-  MTU : Int = 10,
-  USE_GATE : Int = 0) extends Component {
+  MTU : Int = 10) extends Component {
+  val wbus = slave(new regBus)
   val io = new Bundle {
-    val clk = in Bool
     val str_src = slave Stream(axis(64))
     val clear = in Bool
-    val set_stb = in Bool
-    val set_addr = in Bits(8 bits)
-    val set_data = in Bits(32 bits)
     val dataout = master Stream(axis(64))
     val fcin = slave Stream(axis(64))
-    val reset = in Bool
   }
+  val fc = source_flow_control(
+    SR_FLOW_CTRL_EN=SR_FLOW_CTRL_EN,
+    SR_FLOW_CTRL_WINDOW_SIZE=SR_FLOW_CTRL_WINDOW_SIZE,
+    SR_FLOW_CTRL_PKT_LIMIT=SR_FLOW_CTRL_PKT_LIMIT
+    )
+  fc.wbus <> wbus
+  fc.io.clear := io.clear
+  fc.io.fc << io.fcin
+  fc.io.i << io.str_src
+  fc.io.o >> io.dataout
 }
 
 case class noc_input_port(  SR_FLOW_CTRL_BYTES_PER_ACK : Int = 1,
   SR_ERROR_POLICY : Int = 2,
   STR_SINK_FIFOSIZE : Int = 11,
-  USE_TIME : Int = 0) extends Component {
+  USE_TIME : Boolean = false) extends Component {
+  val wbus = slave(new regBus)
   val io = new Bundle {
-    val clk = in Bool
     val clear = in Bool
     val fc = master Stream(axis(64))
-    val set_stb = in Bool
-    val set_addr = in Bits(8 bits)
-    val set_data = in Bits(32 bits)
     val i = slave Stream(axis(64))
-    val reset = in Bool
     val resp_sid = in Bits(32 bits)
     val o = master Stream(axis(64))
   }
+  
+  val int,fc,resp = Stream(axis(64))
+  val axi_fifo_receive_window = chdr_fifo_large(SIZE=STR_SINK_FIFOSIZE)
+  axi_fifo_receive_window.io.clear := io.clear
+  axi_fifo_receive_window.io.i << io.i
+  axi_fifo_receive_window.io.o >> int
+  val responder = noc_responder(SR_FLOW_CTRL_BYTES_PER_ACK=SR_FLOW_CTRL_BYTES_PER_ACK,
+    SR_ERROR_POLICY=SR_ERROR_POLICY,
+    USE_TIME=USE_TIME)
+  responder.io.clear := io.clear
+  responder.wbus <> wbus
+  responder.io.i << int
+  responder.io.o >> io.o
+  responder.io.fc >> fc
+  responder.io.resp >> resp
+  responder.io.resp_sid := io.resp_sid
+  val mux = axi_mux(PRIO = 0,
+    WIDTH = 64,
+    PRE_FIFO_SIZE = 0,
+    POST_FIFO_SIZE = 1,
+    SIZE = 2)
+  mux.io.clear := io.clear
+  mux.io.i(0) << fc
+  mux.io.i(1) << resp
+  mux.io.o >> io.fc
 }
 
 case class axi_mux( PRIO : Int = 0,
@@ -210,7 +238,7 @@ case class chdr_fifo_large( SIZE : Int = 12 ) extends Component {
 
 case class noc_responder( SR_FLOW_CTRL_BYTES_PER_ACK : Int = 1,
   SR_ERROR_POLICY : Int = 2,
-  USE_TIME : Int = 0) extends Component {
+  USE_TIME : Boolean = false) extends Component {
   val io = new Bundle {
     val clear = in Bool
     val resp_sid = in Bits(32 bits)
@@ -219,11 +247,11 @@ case class noc_responder( SR_FLOW_CTRL_BYTES_PER_ACK : Int = 1,
     val resp = master Stream(axis(64))
     val o = master Stream(axis(64))
   }
-  val bus = slave(new regBus)
+  val wbus = slave(new regBus)
   val respFC = flow_control_responder(SR_FLOW_CTRL_BYTES_PER_ACK=SR_FLOW_CTRL_BYTES_PER_ACK,USE_TIME=USE_TIME)
   val respPE = packet_error_responder(SR_ERROR_POLICY=SR_ERROR_POLICY,USE_TIME=USE_TIME)
-  bus <> respPE.bus
-  bus <> respFC.bus
+  wbus <> respPE.bus
+  wbus <> respFC.bus
   val int = Stream(axis(64))
   respFC.io.force_fc_pkt := respPE.io.seqnum_error
   respFC.io.i << io.i
@@ -256,7 +284,7 @@ trait hasReg {
 }
 case class flow_control_responder(  WIDTH : Int = 64,
   SR_FLOW_CTRL_BYTES_PER_ACK : Int = 1,
-  USE_TIME : Int = 0) extends Component with hasReg {
+  USE_TIME : Boolean = false) extends Component with hasReg {
   val io = new Bundle {
     val force_fc_pkt = in Bool
     val clear = in Bool
@@ -368,12 +396,12 @@ case class flow_control_responder(  WIDTH : Int = 64,
   flow_control.payload.last := True
   resp_cvita.pkt_type := B(nocShell.pktType("FC_RESP") >> 1, 2 bits)
   resp_cvita.eob := B(nocShell.pktType("FC_RESP") & 1, 1 bits)(0)
-  resp_cvita.has_time := (if(USE_TIME == 0) False else True)
+  resp_cvita.has_time := (if(USE_TIME) True else False)
   resp_cvita.seqnum := B(0,12 bits)
   resp_cvita.src_sid := fc_src_sid
   resp_cvita.dst_sid := fc_dst_sid
   resp_cvita.length := B(0,16 bits)
-  resp_cvita.vita_time := (if(USE_TIME == 0) B(0,64 bits) else fc_vita_time)
+  resp_cvita.vita_time := (if(USE_TIME) fc_vita_time else B(0,64 bits))
   flow_control.payload.user := resp_cvita.encode
   val chdr_framer_fc_pkt = chdr_framer(2,false)
   chdr_framer_fc_pkt.io.i << flow_control
@@ -382,7 +410,7 @@ case class flow_control_responder(  WIDTH : Int = 64,
 }
 
 case class packet_error_responder(  SR_ERROR_POLICY : Int = 1,
-  USE_TIME : Int = 0) extends Component with hasReg{
+  USE_TIME : Boolean = false) extends Component with hasReg{
   val io = new Bundle {
     val seqnum_error = out Bool
     val clear = in Bool
@@ -452,7 +480,7 @@ case class packet_error_responder(  SR_ERROR_POLICY : Int = 1,
   B(0,4 bits) ## seqnum_hold
   error.payload.data := (first_packet ? CODE_SEQ_ERROR | CODE_SEQ_ERROR_MIDBURST)
   error.payload.user := B"11" ## // 2
-  (if(USE_TIME == 0) B"0" else B"1")  ## // 1
+  (if(USE_TIME) B"1" else B"0")  ## // 1
   B"1" ## B(0,12 bits) ## B(0,16 bits) ## // 1+12+16
   io.sid ## cvita.vita_time // 16
   error.payload.last := True
