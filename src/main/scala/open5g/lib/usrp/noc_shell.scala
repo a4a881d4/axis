@@ -83,15 +83,26 @@ case class noc_shell(  NOC_ID : Int = 0,
     val o = master Stream(axis(64))
     val vita_time = in Bits(64 bits)
   }
+  /*
   val clockBus = ClockDomain(io.bus_clk,io.bus_rst)
   val clockSys = ClockDomain(io.clk,io.reset)
-  val ackin_2clk = StreamFifoCC(dataType = axis(64),
-    depth = (1 << 5),
-    pushClock = clockBus,
-    popClock = clockSys)
+  val ackin_2clk, cmdin_2clk = StreamFifoCC(dataType = axis(64),
+    depth = (1 << 5), pushClock = clockBus, popClock = clockSys)
   ackin_2clk.io.push << ackin_bclk
   ackin_2clk.io.pop >> io.ackin
   ackin_2clk.io.flush := False
+  cmdin_2clk.io.push << cmdin_bclk
+  cmdin_2clk.io.pop >> io.cmdin
+  cmdin_2clk.io.flush := False
+  val ackout_2clk, cmdout_2clk = StreamFifoCC(dataType = axis(64),
+    depth = (1 << 5), pushClock = clockSys, popClock = clockBus)
+  ackout_2clk.io.push << io.ackout
+  ackout_2clk.io.pop >> ackout_bclk
+  ackout_2clk.io.flush := False
+  cmdout_2clk.io.push << io.cmdout
+  cmdout_2clk.io.pop >> cmdout_bclk
+  cmdout_2clk.io.flush := False
+*/
 }
 
 case class noc_output_port( SR_FLOW_CTRL_EN : Int = 0,

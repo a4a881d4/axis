@@ -2,6 +2,7 @@ package open5g.lib.usrp
 
 import spinal.core._
 import spinal.lib._
+import open5g.lib.axis.axis
 
 case class synchronizer(  WIDTH             : Int = 1,
                           STAGES            : Int = 2,
@@ -92,3 +93,114 @@ case class reset_sync() extends Component {
   io.reset_out := reset_double_sync.io.sout(0) 
 }
 
+case class datapath_gatekeeper( WIDTH : Int = 64,
+  COUNT_W : Int = 16) extends Component {
+  val io = new Bundle {
+    val flushing = out Bool
+    val pkt_count = out Bits(COUNT_W bits)
+    val s_axis = slave Stream(axis(WIDTH))
+    val m_axis = master Stream(axis(WIDTH))
+    val flush = in Bool
+  }
+  val monitor = axis_strm_monitor(COUNT_W = COUNT_W,
+    PKT_LENGTH_EN = false, PKT_COUNT_EN = true, XFER_COUNT_EN = false)   
+  monitor.io.axis_tlast  := io.s_axis.payload.last
+  monitor.io.axis_tvalid := io.s_axis.valid
+  monitor.io.axis_tready := io.s_axis.ready
+  io.pkt_count := monitor.io.pkt_count
+  val flusher = axis_packet_flush(WIDTH=WIDTH,FLUSH_PARTIAL_PKTS=0)
+  flusher.io.enable := io.flush
+  flusher.io.s_axis << io.s_axis
+  flusher.io.m_axis >> io.m_axis
+  io.flushing := flusher.io.flushing
+}
+
+case class axis_packet_flush( WIDTH : Int = 64,
+  FLUSH_PARTIAL_PKTS : Int = 0) extends Component {
+  val io = new Bundle {
+    val enable = in Bool
+    val flushing = out Bool
+    val s_axis = slave Stream(axis(WIDTH))
+    val m_axis = master Stream(axis(WIDTH))
+  }
+  val mid_pkt = RegInit(False)
+  val active  = RegInit(False)
+
+  when(io.s_axis.fire) {
+    mid_pkt := !io.s_axis.payload.last
+  }
+  when(io.enable && 
+    ((io.s_axis.fire && io.s_axis.payload.last) || (!mid_pkt && !io.s_axis.fire))
+    ) {
+    active := True
+  }.elsewhen(!io.enable) {
+    active := False
+  }
+  val flushing = (if(FLUSH_PARTIAL_PKTS == 0) active else io.enable)
+  
+  io.flushing := flushing
+  io.m_axis.payload := io.s_axis.payload
+  io.m_axis.valid := flushing ? False | io.s_axis.valid
+  io.s_axis.ready := flushing ? True  | io.m_axis.ready  
+}
+case class axis_strm_monitor( COUNT_W : Int = 32,
+  PKT_LENGTH_EN : Boolean = false,
+  PKT_COUNT_EN : Boolean = false,
+  XFER_COUNT_EN : Boolean = false) extends Component {
+  val io = new Bundle {
+    val sop = out Bool
+    val xfer_count = out Bits(COUNT_W bits)
+    val pkt_length = out Bits(16 bits)
+    val pkt_count = out Bits(COUNT_W bits)
+    val eop = out Bool
+    val axis_tlast = in Bool
+    val axis_tvalid = in Bool
+    val axis_tready = in Bool
+  }
+  val pkt_head = RegInit(True)
+  val xfer = io.axis_tvalid && io.axis_tready
+
+  val sop = pkt_head && xfer
+  val eop = xfer && io.axis_tlast
+  io.eop := eop
+  io.sop := sop
+  when(pkt_head) {
+    when(xfer) {
+      pkt_head := !eop
+    }.elsewhen(eop) {
+      pkt_head := False
+    }
+  }
+
+  if(PKT_LENGTH_EN) {
+    val pkt_length = Reg(UInt(16 bits)) init 0
+    when(eop) {
+      pkt_length := 1
+    }.elsewhen(xfer) {
+      pkt_length := pkt_length + 1
+    }
+    io.pkt_length := pkt_length.asBits
+  } else {
+    io.pkt_length := B(0,16 bits)
+  }
+
+  if(PKT_COUNT_EN) {
+    val pkt_count = Reg(UInt(COUNT_W bits)) init 0
+    when(eop) {
+      pkt_count := pkt_count + 1
+    }
+    io.pkt_count := pkt_count.asBits
+  } else {
+    io.pkt_count := B(0, COUNT_W bits)
+  }
+
+  if(XFER_COUNT_EN) {
+    val xfer_count = Reg(UInt(COUNT_W bits)) init 0
+    when(xfer) {
+      xfer_count := xfer_count + 1
+    }
+    io.xfer_count := xfer_count.asBits
+  } else {
+    io.xfer_count := B(0, COUNT_W bits)
+  }
+}
