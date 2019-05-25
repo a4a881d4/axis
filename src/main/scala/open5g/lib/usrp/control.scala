@@ -204,3 +204,135 @@ case class axis_strm_monitor( COUNT_W : Int = 32,
     io.xfer_count := B(0, COUNT_W bits)
   }
 }
+
+case class axi_mux( PRIO : Int = 0,
+  WIDTH : Int = 64,
+  PRE_FIFO_SIZE : Int = 0,
+  POST_FIFO_SIZE : Int = 0,
+  SIZE : Int = 4) extends Component {
+  val io = new Bundle {
+    val clear = in Bool
+    val i = Vec(slave Stream(axis(WIDTH)),SIZE)
+    val o = master Stream(axis(WIDTH))
+  }
+  val input = Vec(Stream(axis(WIDTH)),SIZE)
+  val output = Stream(axis(WIDTH))
+  if(PRE_FIFO_SIZE > 0) {
+    val fifos = List.fill(SIZE)(StreamFifo(dataType = axis(WIDTH), depth = PRE_FIFO_SIZE))
+    for(i <- 0 until SIZE) {
+      fifos(i).io.push << io.i(i)
+      fifos(i).io.pop >> input(i)
+      fifos(i).io.flush := io.clear
+    }  
+  } else {
+    for(i <- 0 until SIZE) {
+      input(i) << io.i(i)
+    }
+  }
+
+  val st_port = Reg(UInt(log2Up(SIZE) bits)) init 0
+  val st_active = RegInit(False)
+
+  when(st_active) {
+    when(output.payload.last && output.valid && output.ready) {
+      st_active := False
+      if(PRIO != 0) {
+        st_port := 0
+      } else {
+        when(st_port === SIZE-1) {
+          st_port :=0
+        } otherwise {
+          st_port := st_port + 1
+        }
+      }
+    }
+  } otherwise {
+    when(input(st_port).valid) {
+      st_active := True
+    } otherwise {
+      when(st_port === SIZE-1) {
+        st_port :=0
+      } otherwise {
+        st_port := st_port + 1
+      }
+    }
+  }
+
+  for(i <- 0 until SIZE) {
+    when(st_port === i && st_active) {
+      input(i).ready := output.ready
+    } otherwise {
+      input(i).ready := False
+    }
+  }
+
+  output.payload.data := input(st_port).payload.data
+  output.payload.last := input(st_port).payload.last
+  output.valid        := input(st_port).valid
+
+  if(POST_FIFO_SIZE > 0) {
+    val fifoO = StreamFifo(dataType = axis(WIDTH), depth = POST_FIFO_SIZE)
+    fifoO.io.push << output
+    fifoO.io.pop >> io.o
+    fifoO.io.flush := io.clear
+  } else {
+    io.o << output
+  }
+}
+
+case class axi_demux( WIDTH : Int = 64,
+  SIZE : Int = 4,
+  PRE_FIFO_SIZE : Int = 0,
+  POST_FIFO_SIZE : Int = 0) extends Component {
+  val io = new Bundle {
+    val dest = in Bits(log2Up(SIZE) bits)
+    val clear = in Bool
+    val i = slave Stream(axis(WIDTH))
+    val header = out Bits(WIDTH bits)
+    val o = Vec(master Stream(axis(WIDTH)),SIZE)
+  }
+  val int = Stream(axis(WIDTH))
+  if(PRE_FIFO_SIZE>0) {
+    val axi_fifo = StreamFifo(dataType = axis(WIDTH), depth = PRE_FIFO_SIZE)
+    axi_fifo.io.flush := io.clear
+    axi_fifo.io.push << io.i
+    axi_fifo.io.pop  >> int
+  } else {
+    int <> io.i
+  }
+  val st = Reg(Bits(SIZE bits)) init 0
+  val header = int.payload.data
+  when(io.clear) {
+    st := B(0, SIZE bits)
+  } otherwise {
+    when(st === B(0, SIZE bits)) {
+      when(int.valid) {
+        st(io.dest.asUInt) := True
+      }
+    } otherwise {
+      when(int.fire && int.payload.last) {
+        st := B(0, SIZE bits)
+      }
+    }
+  }
+  val o = Vec(Stream(axis(WIDTH)),SIZE)
+  val ready = Bits(SIZE bits)
+  if(POST_FIFO_SIZE > 0) {
+    val fifos = List.fill(SIZE)(StreamFifo(dataType = axis(WIDTH), depth = POST_FIFO_SIZE))
+    for(i <- 0 until SIZE) {
+      fifos(i).io.push << o(i)
+      fifos(i).io.pop >> io.o(i)
+      fifos(i).io.flush := io.clear
+    }
+  } else {
+    for(i <- 0 until SIZE) {
+      o(i) <> io.o(i)
+    }
+  }
+  for(i <- 0 until SIZE) {
+    o(i).payload := int.payload
+    o(i).valid := st(i) && int.valid
+    ready(i) := st(i) && o(i).ready
+  }
+  int.ready := ready.orR
+}
