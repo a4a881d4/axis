@@ -336,3 +336,38 @@ case class axi_demux( WIDTH : Int = 64,
   }
   int.ready := ready.orR
 }
+
+case class pulse_synchronizer(STAGES : Int = 2) extends Component {
+  val io = new Bundle {
+    val busy_a = out Bool
+    val clk_a = in Bool
+    val clk_b = in Bool
+    val rst_a = in Bool
+    val pulse_a = in Bool
+    val pulse_b = out Bool
+  }
+  val trigger = io.pulse_a
+  val pulse_toggle_b_del = RegInit(False)
+  val pulse_toggle_a = RegInit(False)
+  val handshake_toggle_a = Bool
+  val pulse_toggle_b = Bool
+    
+  val clockA = ClockDomain(io.clk_a)
+  val clockB = ClockDomain(io.clk_b)
+  val areaA = new ClockingArea(clockA) {
+    pulse_toggle_a := io.rst_a ? False | (pulse_toggle_a ^ (trigger && !io.busy_a))
+    val handshake_sync = synchronizer(WIDTH = 1, STAGES = STAGES, INITIAL_VAL = 0)
+    handshake_sync.io.sin(0) := pulse_toggle_b_del
+    handshake_toggle_a := handshake_sync.io.sout(0)
+
+  }
+  val areaB = new ClockingArea(clockB) {
+    val toggle_sync = synchronizer(WIDTH = 1, STAGES = STAGES, INITIAL_VAL = 0)
+    toggle_sync.io.sin(0) := pulse_toggle_a
+    pulse_toggle_b := toggle_sync.io.sout(0)
+    pulse_toggle_b_del := pulse_toggle_b
+  }
+  
+  io.pulse_b := pulse_toggle_b_del ^ pulse_toggle_b
+  io.busy_a := pulse_toggle_a ^ handshake_toggle_a
+}

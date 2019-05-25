@@ -52,11 +52,11 @@ case class noc_shell(  NOC_ID : Int = 0,
   INPUT_PORTS : Int = 1,
   OUTPUT_PORTS : Int = 1,
   USE_TIMED_CMDS : Boolean = false,
-  STR_SINK_FIFOSIZE : List[Int] = List.fill(INPUT_PORTS)(11),
-  MTU : List[Int] = List.fill(OUTPUT_PORTS)(10),
+  STR_SINK_FIFOSIZE : List[Int] = List.fill(1)(11),
+  MTU : List[Int] = List.fill(1)(10),
   USE_GATE_MASK : Int = 0,
   BLOCK_PORTS : Int = 1,
-  CMD_FIFO_SIZE : List[Int] = List.fill(BLOCK_PORTS)(5),
+  CMD_FIFO_SIZE : List[Int] = List.fill(1)(5),
   RESP_FIFO_SIZE : Int = 0) extends Component {
   val io = new Bundle {
     val bus_clk = in Bool
@@ -87,6 +87,7 @@ case class noc_shell(  NOC_ID : Int = 0,
   }
   val NOC_SHELL_MAJOR_COMPAT_NUM = 5
   val NOC_SHELL_MINOR_COMPAT_NUM = 1
+  val RB_AWIDTH = 3
   val clockBus = ClockDomain(io.bus_clk,io.bus_rst)
   val clockSys = ClockDomain(io.clk,io.reset)
   val cmdin,cmdin_bclk,cmdout,cmdout_bclk = Stream(axis(64))
@@ -106,23 +107,32 @@ case class noc_shell(  NOC_ID : Int = 0,
   cmdout_2clk.io.pop >> cmdout_bclk
   val src_sid,src_sid_bclk = Vec(Bits(16 bits),BLOCK_PORTS)
   val resp_in_dst_sid,resp_in_dst_sid_bclk = Vec(Bits(16 bits),INPUT_PORTS)
-  
+  val next_dst_sid,resp_out_dst_sid = Vec(Bits(16 bits),OUTPUT_PORTS)
+  io.next_dst_sid := next_dst_sid
+  io.resp_out_dst_sid := resp_out_dst_sid
+  val set_stb = Bits(BLOCK_PORTS bits)
+  val set_data = Vec(Bits(32 bits),BLOCK_PORTS)
+  val set_addr = Vec(Bits(8 bits),BLOCK_PORTS)
+  io.set_stb := set_stb
+  io.set_addr := set_addr
+  io.set_data := set_data
   val sid_settings_2clk = StreamFifoCC(dataType = Vec(Bits(16 bits),BLOCK_PORTS),
     depth = (1 << 1), pushClock = clockSys, popClock = clockBus)
-    sid_settings_2clk.io.push.payload := src_sid
-    sid_settings_2clk.io.push.valid := True
-    sid_settings_2clk.io.pop.ready := True
-    src_sid_bclk := sid_settings_2clk.io.pop.payload
+  sid_settings_2clk.io.push.payload := src_sid
+  sid_settings_2clk.io.push.valid := True
+  sid_settings_2clk.io.pop.ready := True
+  src_sid_bclk := sid_settings_2clk.io.pop.payload
   val resp_settings_2clk = StreamFifoCC(dataType = Vec(Bits(16 bits),INPUT_PORTS),
     depth = (1 << 1), pushClock = clockSys, popClock = clockBus)
-    sid_settings_2clk.io.push.payload := resp_in_dst_sid
-    sid_settings_2clk.io.push.valid := True
-    sid_settings_2clk.io.pop.ready := True
-    resp_in_dst_sid_bclk := sid_settings_2clk.io.pop.payload
+  sid_settings_2clk.io.push.payload := resp_in_dst_sid
+  sid_settings_2clk.io.push.valid := True
+  sid_settings_2clk.io.pop.ready := True
+  resp_in_dst_sid_bclk := sid_settings_2clk.io.pop.payload
   
   val flush_datain, flush_dataout, flush_datain_bclk, flush_dataout_bclk = Bool
   val datain_pkt_cnt, dataout_pkt_cnt, datain_pkt_cnt_bclk, dataout_pkt_cnt_bclk = Bits(16 bits)
-    
+  val fcout,dataout_post,dataout = Stream(axis(64))
+  val datain_pre,fcin,datain = Stream(axis(64))  
   val BusClockArea = new ClockingArea(clockBus) {
     val output_mux = axi_mux(PRIO = 0, WIDTH = 64, PRE_FIFO_SIZE = 0, POST_FIFO_SIZE = 2, SIZE = 4)
     output_mux.io.clear := False
@@ -149,10 +159,10 @@ case class noc_shell(  NOC_ID : Int = 0,
     input_demux.io.clear := False
     input_demux.io.dest  := vdest.asBits
     input_demux.io.i << io.i
-    io.o(0) >> datain_pre
-    io.o(1) >> fcin
-    io.o(2) >> cmdin_bclk
-    io.o(3) >> ackin_bclk
+    input_demux.io.o(0) >> datain_pre
+    input_demux.io.o(1) >> fcin
+    input_demux.io.o(2) >> cmdin_bclk
+    input_demux.io.o(3) >> ackin_bclk
     val keeper_in,keeper_out = datapath_gatekeeper(WIDTH=64,COUNT_W=16)
     keeper_in.io.s_axis << datain_pre
     keeper_in.io.m_axis >> datain
@@ -173,36 +183,24 @@ case class noc_shell(  NOC_ID : Int = 0,
 
     if(OUTPUT_PORTS > 1) {
       val odmux = axi_mux(PRIO = 0, WIDTH = 64, PRE_FIFO_SIZE=0, POST_FIFO_SIZE=0, SIZE = OUTPUT_PORTS)
-      omux.io.clear := False
+      odmux.io.clear := False
       val fcdemux = axi_demux(WIDTH = 64, PRE_FIFO_SIZE=0, POST_FIFO_SIZE=0, SIZE = OUTPUT_PORTS)
       fcdemux.io.clear := False
       for (i <- 0 until OUTPUT_PORTS) {
-        val noc_outp = noc_output_port(SR_FLOW_CTRL_EN=SR_FLOW_CTRL_EN,
-          SR_FLOW_CTRL_WINDOW_SIZE=SR_FLOW_CTRL_WINDOW_SIZE,
-          SR_FLOW_CTRL_PKT_LIMIT=SR_FLOW_CTRL_PKT_LIMIT,
-          PORT_NUM=i,
-          MTU=MTU(i),
-          USE_GATE=USE_GATE_MASK(i)
-          )
+        val noc_outp = noc_output_port()
         noc_outp.io.clear := clear_tx_stb_bclk(i)
         noc_outp.wbus <> wbus_blck(i)
-        noc_outp.io.dataout >> omux.io.i(i)
+        noc_outp.io.dataout >> odmux.io.i(i)
         noc_outp.io.fcin << fcdemux.io.o(i)
         noc_outp.io.str_src >> io.str_src(i)
 
       }
-      omux.io.o >> dataout
+      odmux.io.o >> dataout
       fcdemux.io.i << fcin
       val header_fcin = fcdemux.io.header
       fcdemux.io.dest := header_fcin(3 downto 0)
     } else {
-      val noc_outp = noc_output_port(SR_FLOW_CTRL_EN=SR_FLOW_CTRL_EN,
-        SR_FLOW_CTRL_WINDOW_SIZE=SR_FLOW_CTRL_WINDOW_SIZE,
-        SR_FLOW_CTRL_PKT_LIMIT=SR_FLOW_CTRL_PKT_LIMIT,
-        PORT_NUM=i,
-        MTU=MTU(i),
-        USE_GATE=USE_GATE_MASK(i)
-        )
+      val noc_outp = noc_output_port()
       noc_outp.io.clear := clear_tx_stb_bclk(0)
       noc_outp.wbus <> wbus_blck(0)
       noc_outp.io.dataout >> dataout
@@ -210,14 +208,12 @@ case class noc_shell(  NOC_ID : Int = 0,
       noc_outp.io.str_src >> io.str_src(0)
     }
     if(INPUT_PORTS == 1) {
-      val noc_inp = noc_input_port(SR_FLOW_CTRL_BYTES_PER_ACK=SR_FLOW_CTRL_BYTES_PER_ACK,
-        SR_ERROR_POLICY=SR_ERROR_POLICY,
-        STR_SINK_FIFOSIZE=STR_SINK_FIFOSIZE(0))
+      val noc_inp = noc_input_port(STR_SINK_FIFOSIZE=STR_SINK_FIFOSIZE(0))
       noc_inp.io.clear := clear_rx_stb_bclk(0)
       noc_inp.io.resp_sid := src_sid_bclk(0) ## resp_in_dst_sid_bclk(0)
       noc_inp.wbus <> wbus_blck(0)
       noc_inp.io.i << datain
-      noc_inp.io.o >> io.str_sink
+      noc_inp.io.o >> io.str_sink(0)
       noc_inp.io.fc >> fcout
     } else {
       val din = axi_demux(WIDTH = 64, SIZE=INPUT_PORTS)
@@ -229,9 +225,7 @@ case class noc_shell(  NOC_ID : Int = 0,
       fcmux.io.clear := False
       fcmux.io.o >> fcout
       for(i <- 0 until INPUT_PORTS) {
-        val noc_inp = noc_input_port(SR_FLOW_CTRL_BYTES_PER_ACK=SR_FLOW_CTRL_BYTES_PER_ACK,
-          SR_ERROR_POLICY=SR_ERROR_POLICY,
-          STR_SINK_FIFOSIZE=STR_SINK_FIFOSIZE(i))
+        val noc_inp = noc_input_port(STR_SINK_FIFOSIZE=STR_SINK_FIFOSIZE(i))
         noc_inp.io.clear := clear_rx_stb_bclk(i)
         noc_inp.io.resp_sid := src_sid_bclk(i) ## resp_in_dst_sid_bclk(i)
         noc_inp.wbus <> wbus_blck(i)
@@ -241,6 +235,7 @@ case class noc_shell(  NOC_ID : Int = 0,
       }  
     }
   }
+
   val data_cnt_2clk = StreamFifoCC(dataType = Bits(32 bits), 
     depth = (1 << 5), pushClock = clockBus, popClock = clockSys)
   val data_cnt_bclk = Stream(Bits(32 bits))
@@ -256,8 +251,8 @@ case class noc_shell(  NOC_ID : Int = 0,
   val clear_rx_stb, clear_rx_stb_bclk, clear_rx_flush, clear_rx_clear, clear_rx_trig = Bits(INPUT_PORTS bits)
   val clear_tx_stb, clear_tx_stb_bclk, clear_tx_flush, clear_tx_clear, clear_tx_trig = Bits(OUTPUT_PORTS bits)
 
-  val flush_datain = clear_rx_flush.orR
-  val flush_dataout = clear_tx_flush.orR
+  flush_datain := clear_rx_flush.orR
+  flush_dataout := clear_tx_flush.orR
 
   val cmdin_ports,ackout_ports = Vec(Stream(axis(64)),BLOCK_PORTS)
   val cmd_header = Bits(64 bits)
@@ -276,12 +271,15 @@ case class noc_shell(  NOC_ID : Int = 0,
       val rb_addr_noc_shell = Bits(RB_AWIDTH bits)
       val cmd_proc = cmd_pkt_proc(SR_AWIDTH=8,SR_DWIDTH=32,RB_AWIDTH=RB_AWIDTH,
          RB_USER_AWIDTH = 8, RB_DWIDTH = 64, USE_TIME = USE_TIMED_CMDS,
-         SR_RB_ADDR = SR_RB_ADDR, SR_RB_ADDR_USER = SR_RB_ADDR_USER,
          FIFO_SIZE = CMD_FIFO_SIZE(i))
       cmd_proc.io.cmd << cmdin_ports(i)
       cmd_proc.io.resp >> ackout_ports(i)
       cmd_proc.io.vita_time := io.vita_time
-      cmd_proc.wbus >> wbus(i)
+      cmd_proc.wbus <> wbus(i)
+      set_stb(i) := wbus(i).set_stb
+      set_addr(i) := wbus(i).set_addr
+      set_data(i) := wbus(i).set_data
+      
       rb_stb_int := cmd_proc.io.rb_stb
       rb_data_int := cmd_proc.io.rb_data
       rb_addr_noc_shell := cmd_proc.io.rb_addr
@@ -289,7 +287,7 @@ case class noc_shell(  NOC_ID : Int = 0,
       switch(rb_addr_noc_shell.asUInt) {
         is(nocShell.RBA("RB_NOC_ID")) {
           rb_stb_int := True
-          rb_data_int := B(NOC_ID, RB_DWIDTH bits)
+          rb_data_int := B(NOC_ID,64 bits)
         }
         is(nocShell.RBA("RB_GLOBAL_PARAMS")) {
           rb_stb_int := True
@@ -297,11 +295,11 @@ case class noc_shell(  NOC_ID : Int = 0,
         }
         is(nocShell.RBA("RB_FIFOSIZE")) {
           rb_stb_int := True
-          rb_data_int := (if(i < INPUT_PORTS) B(STR_SINK_FIFOSIZE,64 bits) else B(0,64 bits))
+          rb_data_int := (if(i < INPUT_PORTS) B(STR_SINK_FIFOSIZE(i),64 bits) else B(0,64 bits))
         }
         is(nocShell.RBA("RB_MTU")){
           rb_stb_int := True
-          rb_data_int := (if(i < OUTPUT_PORTS) B(MTU,64 bits) else B(0,64 bits))
+          rb_data_int := (if(i < OUTPUT_PORTS) B(MTU(i),64 bits) else B(0,64 bits))
         }
         is(nocShell.RBA("RB_BLOCK_PORT_SIDS")){
           rb_stb_int := True
@@ -310,8 +308,8 @@ case class noc_shell(  NOC_ID : Int = 0,
           (if(i < OUTPUT_PORTS) resp_out_dst_sid(i) else B(0,16 bits))
         }
         is(nocShell.RBA("RB_USER_RB_DATA")){
-          rb_stb_int := rb_stb(i)
-          rb_data_int := rb_data(i)
+          rb_stb_int := io.rb_stb(i)
+          rb_data_int := io.rb_data(i)
         }
         is(nocShell.RBA("RB_NOC_SHELL_COMPAT_NUM")){
           rb_stb_int := True
@@ -323,7 +321,7 @@ case class noc_shell(  NOC_ID : Int = 0,
           rb_data_int := B"64'h0BADC0DE0BADC0DE"
         }
       }
-      when(set_stb(k)) {
+      when(set_stb(i)) {
         rb_stb_int := False
       }
       val sr_block_sid = setting_reg(my_addr = nocShell.nocSRRegisters("SRC_SID"), width=16, at_reset=0)
@@ -334,7 +332,7 @@ case class noc_shell(  NOC_ID : Int = 0,
         sr_clear_rx_fc.wbus <> wbus(i)
         clear_rx_clear(i) := sr_clear_rx_fc.io.o(0)
         clear_rx_flush(i) := sr_clear_rx_fc.io.o(1)
-        clear_rx_stb(i) = clear_rx_clear(i) && clear_rx_trig(i)
+        clear_rx_stb(i) := clear_rx_clear(i) && clear_rx_trig(i)
         val sr_resp_in_dst_sid = setting_reg(my_addr = nocShell.nocSRRegisters("RESP_IN_DST_SID"), width = 16, at_reset = 0)
         sr_resp_in_dst_sid.wbus <> wbus(i)
         resp_in_dst_sid(i) := sr_resp_in_dst_sid.io.o
@@ -349,22 +347,34 @@ case class noc_shell(  NOC_ID : Int = 0,
         val sr_next_dst_sid = setting_reg(my_addr = nocShell.nocSRRegisters("NEXT_DST_SID"), 
           width = 16, at_reset = 0)
         sr_next_dst_sid.wbus <> wbus(i)
-        next_dst_sid := sr_next_dst_sid.io.o
+        next_dst_sid(i) := sr_next_dst_sid.io.o
         val sr_resp_out_dst_sid = setting_reg(my_addr = nocShell.nocSRRegisters("RESP_OUT_DST_SID"), 
           width = 16, at_reset = 0)
         sr_resp_out_dst_sid.wbus <> wbus(i)
-        resp_out_dst_sid := sr_resp_out_dst_sid.io.o
-        clear_tx_seqnum(i) := clear_tx_stb(i)
+        resp_out_dst_sid(i) := sr_resp_out_dst_sid.io.o
+        io.clear_tx_seqnum(i) := clear_tx_stb(i)
       }  
     }
   }
+  for(i <- 0 until INPUT_PORTS) {
+    val clear_rx_stb_sync = pulse_synchronizer()
+    clear_rx_stb_sync.io.clk_a := io.clk
+    clear_rx_stb_sync.io.rst_a := io.reset
+    clear_rx_stb_sync.io.pulse_a := clear_rx_stb(i)
+    clear_rx_stb_sync.io.clk_b := io.bus_clk
+    clear_rx_stb_bclk(i) := clear_rx_stb_sync.io.pulse_b
+  }
+  for(i <- 0 until OUTPUT_PORTS) {
+    val clear_tx_stb_sync = pulse_synchronizer()
+    clear_tx_stb_sync.io.clk_a := io.clk
+    clear_tx_stb_sync.io.rst_a := io.reset
+    clear_tx_stb_sync.io.pulse_a := clear_tx_stb(i)
+    clear_tx_stb_sync.io.clk_b := io.bus_clk
+    clear_tx_stb_bclk(i) := clear_tx_stb_sync.io.pulse_b
+  }
 }
 
-case class noc_output_port( SR_FLOW_CTRL_EN : Int = 0,
-  SR_FLOW_CTRL_WINDOW_SIZE : Int = 1,
-  SR_FLOW_CTRL_PKT_LIMIT : Int = 2,
-  PORT_NUM : Int = 0,
-  MTU : Int = 10) extends Component {
+case class noc_output_port() extends Component {
   val wbus = slave(new regBus)
   val io = new Bundle {
     val str_src = slave Stream(axis(64))
@@ -372,11 +382,7 @@ case class noc_output_port( SR_FLOW_CTRL_EN : Int = 0,
     val dataout = master Stream(axis(64))
     val fcin = slave Stream(axis(64))
   }
-  val fc = source_flow_control(
-    SR_FLOW_CTRL_EN=SR_FLOW_CTRL_EN,
-    SR_FLOW_CTRL_WINDOW_SIZE=SR_FLOW_CTRL_WINDOW_SIZE,
-    SR_FLOW_CTRL_PKT_LIMIT=SR_FLOW_CTRL_PKT_LIMIT
-    )
+  val fc = source_flow_control()
   fc.wbus <> wbus
   fc.io.clear := io.clear
   fc.io.fc << io.fcin
@@ -384,9 +390,7 @@ case class noc_output_port( SR_FLOW_CTRL_EN : Int = 0,
   fc.io.o >> io.dataout
 }
 
-case class noc_input_port(  SR_FLOW_CTRL_BYTES_PER_ACK : Int = 1,
-  SR_ERROR_POLICY : Int = 2,
-  STR_SINK_FIFOSIZE : Int = 11,
+case class noc_input_port(STR_SINK_FIFOSIZE : Int = 11,
   USE_TIME : Boolean = false) extends Component {
   val wbus = slave(new regBus)
   val io = new Bundle {
@@ -402,9 +406,7 @@ case class noc_input_port(  SR_FLOW_CTRL_BYTES_PER_ACK : Int = 1,
   axi_fifo_receive_window.io.clear := io.clear
   axi_fifo_receive_window.io.i << io.i
   axi_fifo_receive_window.io.o >> int
-  val responder = noc_responder(SR_FLOW_CTRL_BYTES_PER_ACK=SR_FLOW_CTRL_BYTES_PER_ACK,
-    SR_ERROR_POLICY=SR_ERROR_POLICY,
-    USE_TIME=USE_TIME)
+  val responder = noc_responder(USE_TIME=USE_TIME)
   responder.io.clear := io.clear
   responder.wbus <> wbus
   responder.io.i << int
@@ -436,9 +438,7 @@ case class chdr_fifo_large( SIZE : Int = 12 ) extends Component {
   fifoI.io.flush := io.clear
 }
 
-case class noc_responder( SR_FLOW_CTRL_BYTES_PER_ACK : Int = 1,
-  SR_ERROR_POLICY : Int = 2,
-  USE_TIME : Boolean = false) extends Component {
+case class noc_responder(USE_TIME : Boolean = false) extends Component {
   val io = new Bundle {
     val clear = in Bool
     val resp_sid = in Bits(32 bits)
@@ -448,8 +448,8 @@ case class noc_responder( SR_FLOW_CTRL_BYTES_PER_ACK : Int = 1,
     val o = master Stream(axis(64))
   }
   val wbus = slave(new regBus)
-  val respFC = flow_control_responder(SR_FLOW_CTRL_BYTES_PER_ACK=SR_FLOW_CTRL_BYTES_PER_ACK,USE_TIME=USE_TIME)
-  val respPE = packet_error_responder(SR_ERROR_POLICY=SR_ERROR_POLICY,USE_TIME=USE_TIME)
+  val respFC = flow_control_responder(USE_TIME=USE_TIME)
+  val respPE = packet_error_responder(USE_TIME=USE_TIME)
   wbus <> respPE.bus
   wbus <> respFC.bus
   val int = Stream(axis(64))
@@ -483,7 +483,6 @@ trait hasReg {
 
 }
 case class flow_control_responder(  WIDTH : Int = 64,
-  SR_FLOW_CTRL_BYTES_PER_ACK : Int = 1,
   USE_TIME : Boolean = false) extends Component with hasReg {
   val io = new Bundle {
     val force_fc_pkt = in Bool
@@ -609,8 +608,7 @@ case class flow_control_responder(  WIDTH : Int = 64,
   chdr_framer_fc_pkt.io.clear := False  
 }
 
-case class packet_error_responder(  SR_ERROR_POLICY : Int = 1,
-  USE_TIME : Boolean = false) extends Component with hasReg{
+case class packet_error_responder(USE_TIME : Boolean = false) extends Component with hasReg{
   val io = new Bundle {
     val seqnum_error = out Bool
     val clear = in Bool
@@ -886,10 +884,7 @@ case class chdr_framer( SIZE : Int = 10,
   }
 }
 
-case class source_flow_control( WIDTH : Int = 64,
-  SR_FLOW_CTRL_EN : Int = 0,
-  SR_FLOW_CTRL_WINDOW_SIZE : Int = 1,
-  SR_FLOW_CTRL_PKT_LIMIT : Int = 2) extends Component {
+case class source_flow_control( WIDTH : Int = 64) extends Component {
   val io = new Bundle {
     val i = slave Stream(axis(64))
     val clear = in Bool
@@ -1133,8 +1128,6 @@ case class cmd_pkt_proc(  SR_AWIDTH : Int = 8,
   RB_USER_AWIDTH : Int = 8,
   RB_DWIDTH : Int = 64,
   USE_TIME : Boolean = true,
-  SR_RB_ADDR : Int = 0,
-  SR_RB_ADDR_USER : Int = 1,
   FIFO_SIZE : Int = 5) extends Component {
   val wbus = master(new regBus)
   val io = new Bundle {
@@ -1178,8 +1171,8 @@ case class cmd_pkt_proc(  SR_AWIDTH : Int = 8,
   }
   import CMDState._
   val state = Reg(CMDState())
-  val set_rb_addr      = int.payload.data(SR_AWIDTH-1+32 downto 32) === B(SR_RB_ADDR,SR_AWIDTH bits)
-  val set_rb_addr_user = int.payload.data(SR_AWIDTH-1+32 downto 32) === B(SR_RB_ADDR_USER,SR_AWIDTH bits)
+  val set_rb_addr      = int.payload.data(SR_AWIDTH-1+32 downto 32) === B(nocShell.nocSRRegisters("RB_ADDR"),SR_AWIDTH bits)
+  val set_rb_addr_user = int.payload.data(SR_AWIDTH-1+32 downto 32) === B(nocShell.nocSRRegisters("RB_ADDR_USER"),SR_AWIDTH bits)
   val hd = new cVitaHdr
   hd.pkt_type := B"11"
   hd.eob := False
