@@ -62,6 +62,7 @@ case class noc_shell(  NOC_ID : Int = 0,
     val bus_clk = in Bool
     val bus_rst = in Bool
     val clk = in Bool
+    val reset = in Bool
     val str_src = Vec(slave Stream(axis(64)),INPUT_PORTS)
     val next_dst_sid = out Vec(Bits(16 bits),OUTPUT_PORTS)
     val set_data = out Vec(Bits(32 bits),BLOCK_PORTS)
@@ -80,7 +81,6 @@ case class noc_shell(  NOC_ID : Int = 0,
     val str_sink = Vec(master Stream(axis(64)),INPUT_PORTS)
     val src_sid = out Vec(Bits(16 bits),BLOCK_PORTS)
     val resp_out_dst_sid = out Vec(Bits(16 bits),OUTPUT_PORTS)
-    val reset = in Bool
     val ackin = master Stream(axis(64))
     val o = master Stream(axis(64))
     val vita_time = in Bits(64 bits)
@@ -104,6 +104,21 @@ case class noc_shell(  NOC_ID : Int = 0,
   ackout_2clk.io.pop >> ackout_bclk
   cmdout_2clk.io.push << cmdout
   cmdout_2clk.io.pop >> cmdout_bclk
+  val src_sid,src_sid_bclk = Vec(Bits(16 bits),BLOCK_PORTS)
+  val resp_in_dst_sid,resp_in_dst_sid_bclk = Vec(Bits(16 bits),INPUT_PORTS)
+  
+  val sid_settings_2clk = StreamFifoCC(dataType = Vec(Bits(16 bits),BLOCK_PORTS),
+    depth = (1 << 1), pushClock = clockSys, popClock = clockBus)
+    sid_settings_2clk.io.push.payload := src_sid
+    sid_settings_2clk.io.push.valid := True
+    sid_settings_2clk.io.pop.ready := True
+    src_sid_bclk := sid_settings_2clk.io.pop.payload
+  val resp_settings_2clk = StreamFifoCC(dataType = Vec(Bits(16 bits),INPUT_PORTS),
+    depth = (1 << 1), pushClock = clockSys, popClock = clockBus)
+    sid_settings_2clk.io.push.payload := resp_in_dst_sid
+    sid_settings_2clk.io.push.valid := True
+    sid_settings_2clk.io.pop.ready := True
+    resp_in_dst_sid_bclk := sid_settings_2clk.io.pop.payload
   
   val flush_datain, flush_dataout, flush_datain_bclk, flush_dataout_bclk = Bool
   val datain_pkt_cnt, dataout_pkt_cnt, datain_pkt_cnt_bclk, dataout_pkt_cnt_bclk = Bits(16 bits)
@@ -156,7 +171,31 @@ case class noc_shell(  NOC_ID : Int = 0,
     flush_dataout_bclk := flush_sync.io.sout(0)
     flush_datain_bclk  := flush_sync.io.sout(1) 
 
-    for (i <- 0 until OUTPUT_PORTS) {
+    if(OUTPUT_PORTS > 1) {
+      val odmux = axi_mux(PRIO = 0, WIDTH = 64, PRE_FIFO_SIZE=0, POST_FIFO_SIZE=0, SIZE = OUTPUT_PORTS)
+      omux.io.clear := False
+      val fcdemux = axi_demux(WIDTH = 64, PRE_FIFO_SIZE=0, POST_FIFO_SIZE=0, SIZE = OUTPUT_PORTS)
+      fcdemux.io.clear := False
+      for (i <- 0 until OUTPUT_PORTS) {
+        val noc_outp = noc_output_port(SR_FLOW_CTRL_EN=SR_FLOW_CTRL_EN,
+          SR_FLOW_CTRL_WINDOW_SIZE=SR_FLOW_CTRL_WINDOW_SIZE,
+          SR_FLOW_CTRL_PKT_LIMIT=SR_FLOW_CTRL_PKT_LIMIT,
+          PORT_NUM=i,
+          MTU=MTU(i),
+          USE_GATE=USE_GATE_MASK(i)
+          )
+        noc_outp.io.clear := clear_tx_stb_bclk(i)
+        noc_outp.wbus <> wbus_blck(i)
+        noc_outp.io.dataout >> omux.io.i(i)
+        noc_outp.io.fcin << fcdemux.io.o(i)
+        noc_outp.io.str_src >> io.str_src(i)
+
+      }
+      omux.io.o >> dataout
+      fcdemux.io.i << fcin
+      val header_fcin = fcdemux.io.header
+      fcdemux.io.dest := header_fcin(3 downto 0)
+    } else {
       val noc_outp = noc_output_port(SR_FLOW_CTRL_EN=SR_FLOW_CTRL_EN,
         SR_FLOW_CTRL_WINDOW_SIZE=SR_FLOW_CTRL_WINDOW_SIZE,
         SR_FLOW_CTRL_PKT_LIMIT=SR_FLOW_CTRL_PKT_LIMIT,
@@ -164,38 +203,43 @@ case class noc_shell(  NOC_ID : Int = 0,
         MTU=MTU(i),
         USE_GATE=USE_GATE_MASK(i)
         )
-      noc_outp.io.clear := clear_tx_stb_bclk(i)
-      noc_outp.wbus <> wbus_blck(i)
-      noc_outp.io.dataout >> dataout_ports(i)
-      noc_outp.io.fcin << fcin_ports(i)
-      noc_outp.io.str_src_tdata >> str_src(i)
-      if(OUTPUT_PORTS == 1) {
-        dataout <> dataout_ports(0)
-        fcin_ports(0) <> fcin
-      }
+      noc_outp.io.clear := clear_tx_stb_bclk(0)
+      noc_outp.wbus <> wbus_blck(0)
+      noc_outp.io.dataout >> dataout
+      noc_outp.io.fcin << fcin
+      noc_outp.io.str_src >> io.str_src(0)
     }
-       
-     if (OUTPUT_PORTS == 1) begin
-       assign dataout_tdata        = dataout_ports_tdata;
-       assign dataout_tlast        = dataout_ports_tlast;
-       assign dataout_tvalid       = dataout_ports_tvalid;
-       assign dataout_ports_tready = dataout_tready;
-       assign fcin_ports_tdata     = fcin_tdata;
-       assign fcin_ports_tlast     = fcin_tlast;
-       assign fcin_ports_tvalid    = fcin_tvalid;
-       assign fcin_tready          = fcin_ports_tready;
-     end else begin
-       axi_mux #(.PRIO(0), .WIDTH(64), .PRE_FIFO_SIZE(0), .POST_FIFO_SIZE(0), .SIZE(OUTPUT_PORTS)) axi_mux (
-         .clk(bus_clk), .reset(bus_rst), .clear(1'b0),
-         .i_tdata(dataout_ports_tdata), .i_tlast(dataout_ports_tlast), .i_tvalid(dataout_ports_tvalid), .i_tready(dataout_ports_tready),
-         .o_tdata(dataout_tdata), .o_tlast(dataout_tlast), .o_tvalid(dataout_tvalid), .o_tready(dataout_tready));
-       axi_demux #(.WIDTH(64), .PRE_FIFO_SIZE(0), .POST_FIFO_SIZE(0), .SIZE(OUTPUT_PORTS)) axi_demux (
-         .clk(bus_clk), .reset(bus_rst), .clear(1'b0),
-         .header(header_fcin), .dest(header_fcin[3:0]),
-         .i_tdata(fcin_tdata), .i_tlast(fcin_tlast), .i_tvalid(fcin_tvalid), .i_tready(fcin_tready),
-         .o_tdata(fcin_ports_tdata), .o_tlast(fcin_ports_tlast), .o_tvalid(fcin_ports_tvalid), .o_tready(fcin_ports_tready));
-     end
-   endgenerate
+    if(INPUT_PORTS == 1) {
+      val noc_inp = noc_input_port(SR_FLOW_CTRL_BYTES_PER_ACK=SR_FLOW_CTRL_BYTES_PER_ACK,
+        SR_ERROR_POLICY=SR_ERROR_POLICY,
+        STR_SINK_FIFOSIZE=STR_SINK_FIFOSIZE(0))
+      noc_inp.io.clear := clear_rx_stb_bclk(0)
+      noc_inp.io.resp_sid := src_sid_bclk(0) ## resp_in_dst_sid_bclk(0)
+      noc_inp.wbus <> wbus_blck(0)
+      noc_inp.io.i << datain
+      noc_inp.io.o >> io.str_sink
+      noc_inp.io.fc >> fcout
+    } else {
+      val din = axi_demux(WIDTH = 64, SIZE=INPUT_PORTS)
+      din.io.clear := False
+      val header_datain = din.io.header
+      din.io.dest := header_datain(3 downto 0)
+      din.io.i << datain
+      val fcmux = axi_mux(WIDTH=64,SIZE=INPUT_PORTS)
+      fcmux.io.clear := False
+      fcmux.io.o >> fcout
+      for(i <- 0 until INPUT_PORTS) {
+        val noc_inp = noc_input_port(SR_FLOW_CTRL_BYTES_PER_ACK=SR_FLOW_CTRL_BYTES_PER_ACK,
+          SR_ERROR_POLICY=SR_ERROR_POLICY,
+          STR_SINK_FIFOSIZE=STR_SINK_FIFOSIZE(i))
+        noc_inp.io.clear := clear_rx_stb_bclk(i)
+        noc_inp.io.resp_sid := src_sid_bclk(i) ## resp_in_dst_sid_bclk(i)
+        noc_inp.wbus <> wbus_blck(i)
+        noc_inp.io.i << din.io.o(i)
+        noc_inp.io.o >> io.str_sink(i)
+        noc_inp.io.fc >> fcmux.io.i(i)  
+      }  
+    }
   }
   val data_cnt_2clk = StreamFifoCC(dataType = Bits(32 bits), 
     depth = (1 << 5), pushClock = clockBus, popClock = clockSys)
@@ -313,8 +357,6 @@ case class noc_shell(  NOC_ID : Int = 0,
         clear_tx_seqnum(i) := clear_tx_stb(i)
       }  
     }
-
-
   }
 }
 
