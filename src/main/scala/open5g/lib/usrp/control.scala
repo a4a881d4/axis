@@ -301,7 +301,7 @@ case class axi_demux( WIDTH : Int = 64,
     int <> io.i
   }
   val st = Reg(Bits(SIZE bits)) init 0
-  val header = int.payload.data
+  io.header := int.payload.data
   when(io.clear) {
     st := B(0, SIZE bits)
   } otherwise {
@@ -343,31 +343,40 @@ case class pulse_synchronizer(STAGES : Int = 2) extends Component {
     val clk_a = in Bool
     val clk_b = in Bool
     val rst_a = in Bool
+    val rst_b = in Bool
     val pulse_a = in Bool
     val pulse_b = out Bool
   }
-  val trigger = io.pulse_a
-  val pulse_toggle_b_del = RegInit(False)
-  val pulse_toggle_a = RegInit(False)
-  val handshake_toggle_a = Bool
-  val pulse_toggle_b = Bool
+  // val handshake_toggle_a = Bool
+  // val pulse_toggle_b = Bool
     
-  val clockA = ClockDomain(io.clk_a)
-  val clockB = ClockDomain(io.clk_b)
-  val areaA = new ClockingArea(clockA) {
-    pulse_toggle_a := io.rst_a ? False | (pulse_toggle_a ^ (trigger && !io.busy_a))
-    val handshake_sync = synchronizer(WIDTH = 1, STAGES = STAGES, INITIAL_VAL = 0)
-    handshake_sync.io.sin(0) := pulse_toggle_b_del
-    handshake_toggle_a := handshake_sync.io.sout(0)
-
-  }
-  val areaB = new ClockingArea(clockB) {
-    val toggle_sync = synchronizer(WIDTH = 1, STAGES = STAGES, INITIAL_VAL = 0)
-    toggle_sync.io.sin(0) := pulse_toggle_a
-    pulse_toggle_b := toggle_sync.io.sout(0)
-    pulse_toggle_b_del := pulse_toggle_b
-  }
+  val clockA = ClockDomain(io.clk_a,io.rst_a)
+  val clockB = ClockDomain(io.clk_b,io.rst_b)
+  // val areaA = new ClockingArea(clockA) {
+  //   val trigger = RegNext(io.pulse_a) 
+  //   val pulse_toggle_a = Reg(Bool) 
+  //   pulse_toggle_a := io.rst_a ? False | (pulse_toggle_a ^ (trigger && !io.busy_a))
+  //   val handshake_sync = synchronizer(WIDTH = 1, STAGES = STAGES, INITIAL_VAL = 0)
+  //   handshake_sync.io.rst := False
+  //   handshake_toggle_a := handshake_sync.io.sout(0)
+  // }
+  // val areaB = new ClockingArea(clockB) {
+  //   val pulse_toggle_b_del = Reg(Bool) 
+  //   val toggle_sync = synchronizer(WIDTH = 1, STAGES = STAGES, INITIAL_VAL = 0)
+  //   toggle_sync.io.rst := False
+  //   toggle_sync.io.sin(0) := areaA.pulse_toggle_a
+  //   pulse_toggle_b := toggle_sync.io.sout(0)
+  //   pulse_toggle_b_del := pulse_toggle_b
+  // }
   
-  io.pulse_b := pulse_toggle_b_del ^ pulse_toggle_b
-  io.busy_a := pulse_toggle_a ^ handshake_toggle_a
+  // areaA.handshake_sync.io.sin(0) := areaB.pulse_toggle_b_del
+  
+  // io.pulse_b := areaB.pulse_toggle_b_del ^ pulse_toggle_b
+  // io.busy_a := areaA.pulse_toggle_a ^ handshake_toggle_a
+
+  val fifo_2clk = StreamFifoCC(dataType = Bool, depth = (1 << 1), pushClock = clockA, popClock = clockB)
+  fifo_2clk.io.push.payload := io.pulse_a
+  fifo_2clk.io.push.valid := True
+  fifo_2clk.io.pop.ready := True
+  io.pulse_b := fifo_2clk.io.pop.payload
 }
