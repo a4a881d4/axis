@@ -28,7 +28,7 @@ case class Constant(value:Int,size:Int) {
   def is(b:Bits) = b === toBits
 }
 
-case class clock() extends Bundle with IMasterSlave {
+class CLK extends Bundle with IMasterSlave {
   val clk = Bool
   val rst = Bool
   def asMaster = {

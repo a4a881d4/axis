@@ -4,16 +4,17 @@ import spinal.core._
 import spinal.lib._
 import spinal.lib.fsm._
 import open5g.lib.axis.{axis,axisu}
+import open5g.lib.common._
 
 // Experimental debugging block for collecting packet statistics
 // such as throughput, packet size, and flow control congestion.
 //
 
-case class noc_block_debug( NOC_ID : Int = 0xDEB1200000000000,
-  STR_SINK_FIFOSIZE : Int = 11) extends Component {
+case class noc_block_debug( NOC_ID : BigInt = BigInt("0xDEB1200000000000"),
+  STR_SINK_FIFOSIZE : List[Int] = List(11,11)) extends Component {
   val io = new Bundle {
-    val bus = slave clock()
-    val ce = slave clock()
+    val bus = slave (new CLK)
+    val ce = slave (new CLK)
     val i = slave Stream(axis(64))
     val debug = out Bits(64 bits)
     val o = master Stream(axis(64))
@@ -29,7 +30,7 @@ case class noc_block_debug( NOC_ID : Int = 0xDEB1200000000000,
     STR_SINK_FIFOSIZE = STR_SINK_FIFOSIZE)
   io.i >> shell.io.i
   io.o << shell.io.o
-  io.bus <> shell.bus
+  io.bus <> shell.io.bus
   io.ce <> shell.io.sys
   io.debug := shell.io.debug
   val set_data = shell.io.set_data
@@ -38,8 +39,10 @@ case class noc_block_debug( NOC_ID : Int = 0xDEB1200000000000,
   val rb_addr = shell.io.rb_addr
   val clear_tx_seqnum = shell.io.clear_tx_seqnum
   
-  val rb_data = Reg(Vec(Bits(64 bits),BLOCK_PORTS))
-  shell.io.rb_data := rb_data
+  val ceAera = new ClockingArea(io.ce.clkDomain) {
+    val rb_data = Reg(Vec(Bits(64 bits),BLOCK_PORTS))
+  }
+  shell.io.rb_data := ceAera.rb_data
   shell.io.rb_stb := B"11"
   
   val cmdout,ackin = Stream(axis(64))
@@ -53,11 +56,15 @@ case class noc_block_debug( NOC_ID : Int = 0xDEB1200000000000,
   
   val str_src = Vec(Stream(axis(64)),OUTPUT_PORTS)
   (0 until OUTPUT_PORTS).foreach{i =>
-    str_src(i) >> shell.io.str_src
+    str_src(i) >> shell.io.str_src(i)
   }
 
   val src_sid = shell.io.src_sid
   val next_dst_sid = shell.io.next_dst_sid 
 
   cmdout.payload.data := B(0,64 bits)
+  cmdout.payload.last := False
+  cmdout.valid := False
+  ackin.ready := True
+
 }

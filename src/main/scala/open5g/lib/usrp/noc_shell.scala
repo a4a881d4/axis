@@ -4,6 +4,7 @@ import spinal.core._
 import spinal.lib._
 import spinal.lib.fsm._
 import open5g.lib.axis.{axis,axisu}
+import open5g.lib.common._
 
 object nocShell {
   val nocSRRegisters = Map(
@@ -48,7 +49,7 @@ object nocShell {
   def eob(pt:String) = Bool((pktType(pt)&1) == 1)
 }
 
-case class noc_shell(  NOC_ID : Int = 0,
+case class noc_shell(  NOC_ID : BigInt,
   INPUT_PORTS : Int = 1,
   OUTPUT_PORTS : Int = 1,
   USE_TIMED_CMDS : Boolean = false,
@@ -62,13 +63,8 @@ case class noc_shell(  NOC_ID : Int = 0,
   val IWDITH = log2Up(INPUT_PORTS)
   val OWDITH = log2Up(OUTPUT_PORTS)
   val io = new Bundle {
-    val bus = slave clock()
-    val sys = slave clock()
-
-    // val bus_clk = in Bool
-    // val bus_rst = in Bool
-    // val clk = in Bool
-    // val reset = in Bool
+    val bus = slave (new CLK)
+    val sys = slave (new CLK)
     val str_src = Vec(slave Stream(axis(64)),OUTPUT_PORTS)
     val next_dst_sid = out Vec(Bits(16 bits),OUTPUT_PORTS)
     val set_data = out Vec(Bits(32 bits),BLOCK_PORTS)
@@ -94,8 +90,6 @@ case class noc_shell(  NOC_ID : Int = 0,
   val NOC_SHELL_MAJOR_COMPAT_NUM = 5
   val NOC_SHELL_MINOR_COMPAT_NUM = 1
   val RB_AWIDTH = 3
-  // val clockBus = ClockDomain(io.bus_clk,io.bus_rst)
-  // val clockSys = ClockDomain(io.clk,io.reset)
   val clockBus = io.bus.clkDomain
   val clockSys = io.sys.clkDomain
   val cmdin,cmdin_bclk,cmdout,cmdout_bclk = Stream(axis(64))
