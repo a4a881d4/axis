@@ -42,3 +42,14 @@ tmp/
 *.png
 .~*
 *.iset
+
+*.o
+zcc
+zas
+y.tab.c
+y.tab.h
+lex.yy.c
+*.psm
+testzcpsm*
+
+

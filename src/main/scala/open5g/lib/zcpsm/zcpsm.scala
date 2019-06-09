@@ -28,7 +28,7 @@ case class addsub(width:Int) extends Component {
   ac.io.opb := Mux(io.SUB, ~io.B, io.B)
   ac.io.opa := io.A
   ac.io.ci  := (io.Ci && io.C_EN) ^ io.SUB
-  io.Co  := ac.io.co ^ io.SUB
+  io.Co     := ac.io.co ^ io.SUB
   io.S      := ac.io.sum
 }
 
