@@ -6,11 +6,12 @@ import scala.collection._
 object PSM {
   val program : mutable.ArrayBuffer[asm] = mutable.ArrayBuffer[asm]()
   val labeled : mutable.Map[String,Int] = mutable.Map[String,Int]()
+  def bin = program.toList.map(_.toHex)
 }
 
 trait asm {
   val opName : String
-  def toHex : Int = 0
+  def toHex : Int
   val opc : Int
   val opg : Int
   val ins : Int
@@ -23,11 +24,14 @@ trait opd {
 case class reg(r:Int) extends opd {
   var alloc : Int = r
   override def toString = f"s$alloc%02X"
+  val fisrt  = (alloc&0xf)<<8 | ((alloc&0x10)>>4)<<17
+  val second = (alloc&0xf)<<4 | ((alloc&0x10)>>4)<<16
 }
 
 case class imm(d:Int) extends opd {
   var data : Int = d
   override def toString = f"$data%02X"
+  def hex = data&0xff
 }
 
 abstract class twoArg(f:reg,s:opd) extends asm {
@@ -37,65 +41,77 @@ abstract class twoArg(f:reg,s:opd) extends asm {
 class alu(val opName:String,f:reg,s:opd,val opc:Int) extends twoArg(f,s) {
   val opg = 0xc
   val ins = 0xc000
+  def toHex = {
+    s match {
+      case r:reg => f.fisrt | (opc&0x7)     | r.second | 0xc000
+      case i:imm => f.fisrt | (opc&0x7)<<12 | i.hex
+    }
+  }
 }
 
 class shift(val opName:String,r:reg,val opc:Int) extends asm {
   val opg = 0xd
   val ins = 0xd000
   override def toString = opName + " " + r.toString
+  def toHex = 0xd000 | r.fisrt | opc&0xf
 }
 
-trait programControl extends asm {
-  val jumpG : Int
+class inout(val opName:String,f:reg,s:opd,val opc:Int,val opg:Int, val ins:Int) extends twoArg(f,s) {
+  def toHex = s match {
+    case r:reg => f.fisrt | r.second | (ins+0x1000)
+    case i:imm => f.fisrt | i.hex    | (ins+0x0000)
+  }
+}
+
+abstract class programControl(val opName:String, val jumpG:Int, val ins:Int) extends asm {
   val opc = 0
   val opg = 8
 }
 
-trait hasLabel extends programControl {
+trait hasLabel {
+  val ins : Int
+  val opName : String
   val labelName:String
   def dest = PSM.labeled(labelName)
   override def toString = opName + " " + labelName
+  def toHex = ins | dest&0x3ff | ((dest&0xc00)>>10)<<16
 }
 
-case class jumpUC(labelName:String) extends hasLabel {
-  val opName = "JUMP"
-  val jumpG = 0
-  val ins = 0x9000
-}
-
-case class call(labelName:String) extends hasLabel {
-  val opName = "CALL"
-  val jumpG = 3
-  val ins = 0x8c00
-}
-case class ret() extends programControl{
-  val opName = "RETURN"
-  val jumpG = 2
-  val ins = 0x8800
+case class jumpUC(labelName:String) extends programControl("JUMP",0,0x8000) with hasLabel
+case class call(labelName:String)   extends programControl("CALL",3,0x8c00) with hasLabel
+case class ret() extends programControl("RETURN",2,0x8800){
   override def toString = opName
+  def toHex = ins
 } 
-case class label_(name:String)
 
-abstract class conditionJump(val opName:String,val jumpF:Int, val ins:Int) extends hasLabel {
-  val jumpG = 4
+trait conditionJump extends hasLabel {
+  val ins:Int
+  def jumpF = (ins-0x9000)/0x400
+  def cond = jumpF match {
+    case 0 => "Z"
+    case 1 => "NZ"
+    case 2 => "C"
+    case 3 => "NC"
+    case _ => ""
+  }
+  override def toString = opName + " " + cond + ", " + labelName
 }
 
-case class  jumpz(labelName:String) extends conditionJump("JUMP Z,", 0,0x8000) 
-case class jumpnz(labelName:String) extends conditionJump("JUMP NZ,",1,0x8400) 
-case class  jumpc(labelName:String) extends conditionJump("JUMP C,", 2,0x8800) 
-case class jumpnc(labelName:String) extends conditionJump("JUMP NC,",3,0x8c00) 
+case class  jumpz(labelName:String) extends programControl("JUMP",4,0x9000)  with conditionJump
+case class jumpnz(labelName:String) extends programControl("JUMP",4,0x9400)  with conditionJump
+case class  jumpc(labelName:String) extends programControl("JUMP",4,0x9800)  with conditionJump
+case class jumpnc(labelName:String) extends programControl("JUMP",4,0x9c00)  with conditionJump
   
-case class  add(f:reg,s:opd) extends alu("ADD",  f,s,0)
-case class addc(f:reg,s:opd) extends alu("ADDCY",f,s,1)
-case class  sub(f:reg,s:opd) extends alu("SUB",  f,s,2)
-case class subc(f:reg,s:opd) extends alu("SUBCY",f,s,3)
-case class load(f:reg,s:opd) extends alu("LOAD", f,s,4)
-case class  and(f:reg,s:opd) extends alu("AND",  f,s,5)
-case class   or(f:reg,s:opd) extends alu("OR",   f,s,6)
-case class  xor(f:reg,s:opd) extends alu("XOR",  f,s,7)
+case class load(f:reg,s:opd) extends alu("LOAD", f,s,0)
+case class  and(f:reg,s:opd) extends alu("AND",  f,s,1)
+case class   or(f:reg,s:opd) extends alu("OR",   f,s,2)
+case class  xor(f:reg,s:opd) extends alu("XOR",  f,s,3)
+case class  add(f:reg,s:opd) extends alu("ADD",  f,s,4)
+case class addc(f:reg,s:opd) extends alu("ADDCY",f,s,5)
+case class  sub(f:reg,s:opd) extends alu("SUB",  f,s,6)
+case class subc(f:reg,s:opd) extends alu("SUBCY",f,s,7)
 
-class inout(val opName:String,f:reg,s:opd,val opc:Int,val opg:Int, val ins:Int) extends twoArg(f,s)
-case class  input(f:reg,s:opd) extends inout("INPUT",f,s,0,0xa,0xa000) 
+case class  input(f:reg,s:opd) extends inout("INPUT", f,s,0,0xa,0xa000) 
 case class output(f:reg,s:opd) extends inout("OUTPUT",f,s,0,0xe,0xe000) 
 
 case class  sr0(r:reg) extends shift("SR0",r,0xe)
@@ -108,6 +124,8 @@ case class  sl1(r:reg) extends shift("SL1",r,0x7)
 case class  slx(r:reg) extends shift("SLX",r,0x4)
 case class  sla(r:reg) extends shift("SLA",r,0x0)
 case class   rl(r:reg) extends shift("RL", r,0x2)
+
+case class label_(name:String)
 
 class asmParser extends RegexParsers {
   def removeComment(s:Iterator[String]) = {

@@ -71,7 +71,7 @@ object mytest extends asmParser {
 
     val (a,b) = fromFile(psm)
     for(i <- 0 until a.length) {
-      println(a(i))  
+      println(a(i)+f" ;; ${a(i).toHex}%05X")
     }
     println(b)
     println(toFile)
