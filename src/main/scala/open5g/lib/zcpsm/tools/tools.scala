@@ -1,6 +1,7 @@
 package open5g.lib.zcpsm.tools
 
 import scala.util.parsing.combinator.syntactical._
+import scala.util.parsing.combinator.lexical.StdLexical
 import scala.collection.mutable.{ArrayBuffer,Map}
 
 object PSM {
@@ -108,7 +109,16 @@ case class  slx(r:reg) extends shift("SLX",r,0x4)
 case class  sla(r:reg) extends shift("SLA",r,0x0)
 case class   rl(r:reg) extends shift("RL", r,0x2)
 
+class asmLexer extends StdLexical {
+  override type Elem = Char
+  override def digit = ( super.digit | hexDigit )
+  lazy val hexDigits = Set[Char]() ++ "0123456789abcdefABCDEF".toArray
+  lazy val hexDigit = elem("hex digit", hexDigits.contains(_))
+}
+
 class asmParser extends StandardTokenParsers {
+  override val lexical:asmLexer = new asmLexer()
+  // import lexical.hexDigit
   def removeComment(s:Iterator[String]) = {
     s.map{x => {
         val i = x.indexOf(";;")
@@ -116,18 +126,17 @@ class asmParser extends StandardTokenParsers {
       }
     }
   }
-  // lexical.delimiters += (";;","\n",",")
-  // lexical.reserved   += (
-  //   "LOAD","AND","OR","XOR",
-  //   "ADD","ADDCY","SUB","SUBCY",
-  //   "SR0","SR1","SRX","SRA","RR",
-  //   "SL0","SL1","SLX","SLA","RL",
-  //   "INPUT","OUTPUT",
-  //   "CALL","RETURN","JUMP",
-  //   "Z","NZ","C","NC","s")
+  lexical.delimiters += (":",",")
+  lexical.reserved   += (
+    "LOAD","AND","OR","XOR",
+    "ADD","ADDCY","SUB","SUBCY",
+    "SR0","SR1","SRX","SRA","RR",
+    "SL0","SL1","SLX","SLA","RL",
+    "INPUT","OUTPUT",
+    "CALL","RETURN","JUMP")
   def label : Parser[String] = ident~":" ^^ {_.toString}
-  def Reg : Parser[reg] = "s"~ident ^^ {case s~a0 => reg(Integer.parseInt(a0)) }
-  def Imm : Parser[imm] = ident ^^ { x => imm(Integer.parseInt(x.toString)) }
+  def Reg : Parser[reg] = "s"~numericLit ^^ {case s~x => reg(Integer.parseInt(x.drop(1))) }
+  def Imm : Parser[imm] = numericLit ^^ { x => imm(Integer.parseInt(x.toString,16)) }
   def Opd : Parser[opd] = (Reg|Imm)
   def TwoArg : Parser[asm] = ("LOAD"|"AND"|"OR"|"XOR"|"ADD"|"ADDCY"|"SUB"|"SUBCY"|"INPUT"|"OUTPUT") ~ Reg ~ "," ~ Opd ^^ {
     case o~r~c~d => o match {
@@ -160,7 +169,7 @@ class asmParser extends StandardTokenParsers {
     }
   }
   def Call : Parser[asm] = "CALL"~ident ^^ {case c~i => call(i.toString)}
-  def Ret  : Parser[asm] = "RETURN" ^^ {ret()}
+  def Ret  : Parser[asm] = "RETURN" ^^ {_ => ret()}
   def Jump : Parser[asm] = "JUMP"~opt("Z,"|"NZ,"|"C,"|"NC,")~ident ^^ { case j~c~l => 
     val lb = l.toString
     c match {
@@ -169,9 +178,10 @@ class asmParser extends StandardTokenParsers {
       case Some("NZ,") => jumpnz(lb)
       case Some("C,")  =>  jumpc(lb)
       case Some("NC,") => jumpnc(lb)
+      case _           => and(reg(0),reg(0))
     }
   }
-  def line : Parser[Any] = (label|TwoArg|Shift|Call|Ret|Jump)
+  def line : Parser[Any] = (TwoArg|Shift|Call|Ret|Jump|label)
   def psmParser : Parser[Any] = rep(line)
   def parserAll[T]( p : Parser[T], input :String) = {
     phrase(p)( new lexical.Scanner(input))
