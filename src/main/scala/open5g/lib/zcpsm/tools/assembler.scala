@@ -1,12 +1,11 @@
 package open5g.lib.zcpsm.tools
 
-import scala.util.parsing.combinator.syntactical._
-import scala.util.parsing.combinator.lexical.StdLexical
-import scala.collection.mutable.{ArrayBuffer,Map}
+import scala.util.parsing.combinator.RegexParsers
+import scala.collection._
 
 object PSM {
-  val program : ArrayBuffer[asm] = ArrayBuffer[asm]()
-  val labeled : Map[String,Int] = Map[String,Int]()
+  val program : mutable.ArrayBuffer[asm] = mutable.ArrayBuffer[asm]()
+  val labeled : mutable.Map[String,Int] = mutable.Map[String,Int]()
 }
 
 trait asm {
@@ -75,6 +74,7 @@ case class ret() extends programControl{
   val ins = 0x8800
   override def toString = opName
 } 
+case class label_(name:String)
 
 abstract class conditionJump(val opName:String,val jumpF:Int, val ins:Int) extends hasLabel {
   val jumpG = 4
@@ -109,16 +109,7 @@ case class  slx(r:reg) extends shift("SLX",r,0x4)
 case class  sla(r:reg) extends shift("SLA",r,0x0)
 case class   rl(r:reg) extends shift("RL", r,0x2)
 
-class asmLexer extends StdLexical {
-  override type Elem = Char
-  override def digit = ( super.digit | hexDigit )
-  lazy val hexDigits = Set[Char]() ++ "0123456789abcdefABCDEF".toArray
-  lazy val hexDigit = elem("hex digit", hexDigits.contains(_))
-}
-
-class asmParser extends StandardTokenParsers {
-  override val lexical:asmLexer = new asmLexer()
-  // import lexical.hexDigit
+class asmParser extends RegexParsers {
   def removeComment(s:Iterator[String]) = {
     s.map{x => {
         val i = x.indexOf(";;")
@@ -126,16 +117,11 @@ class asmParser extends StandardTokenParsers {
       }
     }
   }
-  lexical.delimiters += (":",",")
-  lexical.reserved   += (
-    "LOAD","AND","OR","XOR",
-    "ADD","ADDCY","SUB","SUBCY",
-    "SR0","SR1","SRX","SRA","RR",
-    "SL0","SL1","SLX","SLA","RL",
-    "INPUT","OUTPUT",
-    "CALL","RETURN","JUMP")
-  def label : Parser[String] = ident~":" ^^ {_.toString}
-  def Reg : Parser[reg] = "s"~numericLit ^^ {case s~x => reg(Integer.parseInt(x.drop(1))) }
+
+  def ident : Parser[String] = """[a-zA-Z_]\w*""".r
+  def label : Parser[label_] = ident<~":" ^^ {case x:String => label_(x)}
+  def numericLit : Parser[String] = """[0-9a-fA-F]*""".r
+  def Reg : Parser[reg] = """s[0-1][0-9a-fA-F]""".r ^^ {x => reg(Integer.parseInt(x.drop(1),16)) }
   def Imm : Parser[imm] = numericLit ^^ { x => imm(Integer.parseInt(x.toString,16)) }
   def Opd : Parser[opd] = (Reg|Imm)
   def TwoArg : Parser[asm] = ("LOAD"|"AND"|"OR"|"XOR"|"ADD"|"ADDCY"|"SUB"|"SUBCY"|"INPUT"|"OUTPUT") ~ Reg ~ "," ~ Opd ^^ {
@@ -182,8 +168,32 @@ class asmParser extends StandardTokenParsers {
     }
   }
   def line : Parser[Any] = (TwoArg|Shift|Call|Ret|Jump|label)
-  def psmParser : Parser[Any] = rep(line)
-  def parserAll[T]( p : Parser[T], input :String) = {
-    phrase(p)( new lexical.Scanner(input))
+  def psmParser : Parser[List[Any]] = rep(line) ^^ (_.toList)
+  def fromFile(asmString:String) : (List[asm],Map[String,Int]) = {
+    PSM.program.clear()
+    PSM.labeled.clear()
+    val rC = removeComment(asmString.split("\n").toIterator).filter(_!="").reduce(_+"\n"+_)
+    parseAll(psmParser,rC) match {
+      case Success(result,_) => {
+        for(e <- result) {
+          e match {
+            case l:label_ => PSM.labeled += (l.name -> PSM.program.length)
+            case a:asm    => PSM.program += a
+            case _ =>
+          }
+        }
+      }
+      case _ => 
+    }
+    (PSM.program.toList,PSM.labeled)
+  }
+  def toFile = {
+    val rL = PSM.labeled.map{case (a,b) => (b->a)}
+    var r = ""
+    for(i <- 0 until PSM.program.length) {
+      if(rL.contains(i)) r += rL(i) + ":\n"
+      r += PSM.program(i).toString + "\n"
+    }
+    r
   }
 }

@@ -69,9 +69,11 @@ object mytest extends asmParser {
     println(jp)
     println(psm)
 
-    val rC = removeComment(psm.split("\n").toIterator).filter(_!="").reduce(_+"\n"+_)
-    println(rC)
-    val a = parserAll(psmParser,rC)
-    println(a)
+    val (a,b) = fromFile(psm)
+    for(i <- 0 until a.length) {
+      println(a(i))  
+    }
+    println(b)
+    println(toFile)
   }
 }
