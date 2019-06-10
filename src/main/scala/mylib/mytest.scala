@@ -75,5 +75,7 @@ object mytest extends asmParser {
     }
     println(b)
     println(toFile)
+    val bin = a.map(_.toHex)
+    println(PSM.disAsm(bin))
   }
 }

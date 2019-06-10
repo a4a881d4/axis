@@ -7,6 +7,18 @@ object PSM {
   val program : mutable.ArrayBuffer[asm] = mutable.ArrayBuffer[asm]()
   val labeled : mutable.Map[String,Int] = mutable.Map[String,Int]()
   def bin = program.toList.map(_.toHex)
+  def disAsm(b:List[Int]) : (List[asm],Map[String,Int]) = {
+    program.clear()
+    labeled.clear()
+    for(i <- b) {
+      val bI = binIns(i)
+      program += bI.disAsm
+      if(bI.hasLabel) {
+        labeled += (bI.label -> bI.dest)
+      }
+    }
+    (program.toList,labeled)
+  }
 }
 
 trait asm {
@@ -26,7 +38,39 @@ case class reg(r:Int) extends opd {
   override def toString = f"s$alloc%02X"
   val fisrt  = (alloc&0xf)<<8 | ((alloc&0x10)>>4)<<17
   val second = (alloc&0xf)<<4 | ((alloc&0x10)>>4)<<16
-  def 
+}
+
+case class binIns(i:Int) {
+  def  firstReg = ((i>>17)&1)<<4|((i>>8)&0xf)
+  def secondReg = ((i>>16)&1)<<4|((i>>4)&0xf)
+  def   immData = i&0xff
+  def immOpCode = (i>>12)&0x7
+  def regOpCode = i&7
+  def shtOpCode = i&0xf
+  def   opGroup = (i>>12)&0xf
+  def progContr = (i>>8) &0xc
+  def      dest = i&0x3ff | ((i>>16)&3)<<10
+  def     label = s"L$dest"
+  def disAsm:asm = opGroup match {
+    case 0xf => output(reg(firstReg),reg(secondReg))
+    case 0xe => output(reg(firstReg),imm(immData))
+    case 0xd => shift.opc2asm(shtOpCode,reg(firstReg))
+    case 0xc => alu.opc2asm(regOpCode,reg(firstReg),reg(secondReg))
+    case 0xb => input(reg(firstReg),reg(secondReg))
+    case 0xa => input(reg(firstReg),imm(immData))
+    case 0x9 => conditionJump.opc2asm(progContr,label)
+    case 0x8 => programControl.opc2asm(progContr,label)
+    case x if x<8 => alu.opc2asm(regOpCode,reg(firstReg),imm(immData))
+    case _   => and(reg(0),reg(0))
+  }
+  def hasLabel = opGroup match {
+    case 0x9 => true
+    case 0x8 => progContr match {
+      case 0x0|0xc => true
+      case _ => false
+    }
+    case _ => false
+  } 
 }
 
 case class imm(d:Int) extends opd {
@@ -39,6 +83,20 @@ abstract class twoArg(f:reg,s:opd) extends asm {
   override def toString = opName + " " + f.toString + ", " + s.toString
 }
 
+object alu {
+  def opc2asm(opc:Int,f:reg,s:opd) = opc match {
+    case 0 => load(f,s)
+    case 1 =>  and(f,s)
+    case 2 =>   or(f,s)
+    case 3 =>  xor(f,s)
+    case 4 =>  add(f,s)
+    case 5 => addc(f,s)
+    case 6 =>  sub(f,s)
+    case 7 => subc(f,s)
+    case _ => and(reg(0),reg(0))
+  }
+}
+
 class alu(val opName:String,f:reg,s:opd,val opc:Int) extends twoArg(f,s) {
   val opg = 0xc
   val ins = 0xc000
@@ -48,6 +106,22 @@ class alu(val opName:String,f:reg,s:opd,val opc:Int) extends twoArg(f,s) {
       case i:imm => f.fisrt | (opc&0x7)<<12 | i.hex
     }
   }
+}
+
+object shift {
+  def opc2asm(opc:Int,r:reg) = opc match {
+    case 0xe => sr0(r)
+    case 0xf => sr1(r)
+    case 0xa => srx(r)
+    case 0x8 => sra(r)
+    case 0xc =>  rr(r)
+    case 0x6 => sl0(r)
+    case 0x7 => sl1(r)
+    case 0x4 => slx(r)
+    case 0x0 => sla(r)
+    case 0x2 =>  rl(r)
+    case _   => sr0(reg(0))
+  } 
 }
 
 class shift(val opName:String,r:reg,val opc:Int) extends asm {
@@ -67,6 +141,25 @@ class inout(val opName:String,f:reg,s:opd,val opc:Int,val opg:Int, val ins:Int) 
 abstract class programControl(val opName:String, val jumpG:Int, val ins:Int) extends asm {
   val opc = 0
   val opg = 8
+}
+
+object programControl {
+  def opc2asm(opc:Int,l:String) = opc match {
+    case 0x0 => jumpUC(l)
+    case 0x8 =>    ret()
+    case 0xc =>   call(l)
+    case _   => and(reg(0),reg(0))
+  }
+}
+
+object conditionJump {
+  def opc2asm(opc:Int,l:String) = opc match {
+    case 0x0 =>  jumpz(l)
+    case 0x4 => jumpnz(l)
+    case 0x8 =>  jumpc(l)
+    case 0xc => jumpnc(l)
+    case _   => and(reg(0),reg(0))
+  }
 }
 
 trait hasLabel {
