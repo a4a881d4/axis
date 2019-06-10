@@ -1,10 +1,9 @@
 package open5g.lib.zcpsm.tools
 
-
 object If {
   def apply(cond: bool)(block: =>Unit) = {
     cond match {
-      case x:boolC   => if(cond.Constant == true) {block} else {println("ne");block}
+      case x:boolC   => if(cond.Constant.asInstanceOf[Boolean]) {block} else {println("ne");block}
       case x:boolEqu => println("depend" + cond.toString)
     }
   }
@@ -16,14 +15,17 @@ trait baseType {
 }
 
 trait bool extends baseType
+
 case class boolC(Constant:Boolean) extends bool {
   val isConstant = true
 }
+
 case class boolEqu(a:number,b:number) extends bool {
   val isConstant = false
   val Constant = 0
   override def toString = "(" + a.toString + " == " + b.toString + ")" 
 }
+
 trait number extends baseType {
   def ==(that:number) : bool = {
     if(this.isConstant && that.isConstant) {
