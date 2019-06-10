@@ -26,6 +26,7 @@ case class reg(r:Int) extends opd {
   override def toString = f"s$alloc%02X"
   val fisrt  = (alloc&0xf)<<8 | ((alloc&0x10)>>4)<<17
   val second = (alloc&0xf)<<4 | ((alloc&0x10)>>4)<<16
+  def 
 }
 
 case class imm(d:Int) extends opd {
