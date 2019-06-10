@@ -79,3 +79,9 @@ object mytest extends asmParser {
     println(PSM.disAsm(bin))
   }
 }
+
+object mytest1 {
+  def main(args:Array[String]){
+    dsltest.t1
+  }
+}

@@ -7,3 +7,9 @@
 * not
 * xor
 * shift
+* if
+* for
+* while
+* func
+* input
+* output
