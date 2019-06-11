@@ -25,7 +25,6 @@ trait asm {
   val opName : String
   def toHex : Int
   val opc : Int
-  val opg : Int
   val ins : Int
 }
 
@@ -60,7 +59,7 @@ case class binIns(i:Int) {
     case 0xa => input(reg(firstReg),imm(immData))
     case 0x9 => conditionJump.opc2asm(progContr,label)
     case 0x8 => programControl.opc2asm(progContr,label)
-    case x if x<8 => alu.opc2asm(regOpCode,reg(firstReg),imm(immData))
+    case x if x<8 => alu.opc2asm(x&7,reg(firstReg),imm(immData))
     case _   => and(reg(0),reg(0))
   }
   def hasLabel = opGroup match {
@@ -98,7 +97,6 @@ object alu {
 }
 
 class alu(val opName:String,f:reg,s:opd,val opc:Int) extends twoArg(f,s) {
-  val opg = 0xc
   val ins = 0xc000
   def toHex = {
     s match {
@@ -125,22 +123,20 @@ object shift {
 }
 
 class shift(val opName:String,r:reg,val opc:Int) extends asm {
-  val opg = 0xd
   val ins = 0xd000
   override def toString = opName + " " + r.toString
   def toHex = 0xd000 | r.fisrt | opc&0xf
 }
 
-class inout(val opName:String,f:reg,s:opd,val opc:Int,val opg:Int, val ins:Int) extends twoArg(f,s) {
+class inout(val opName:String,f:reg,s:opd,val opc:Int, val ins:Int) extends twoArg(f,s) {
   def toHex = s match {
     case r:reg => f.fisrt | r.second | (ins+0x1000)
     case i:imm => f.fisrt | i.hex    | (ins+0x0000)
   }
 }
 
-abstract class programControl(val opName:String, val jumpG:Int, val ins:Int) extends asm {
+abstract class programControl(val opName:String, val ins:Int) extends asm {
   val opc = 0
-  val opg = 8
 }
 
 object programControl {
@@ -171,9 +167,9 @@ trait hasLabel {
   def toHex = ins | dest&0x3ff | ((dest&0xc00)>>10)<<16
 }
 
-case class jumpUC(labelName:String) extends programControl("JUMP",0,0x8000) with hasLabel
-case class call(labelName:String)   extends programControl("CALL",3,0x8c00) with hasLabel
-case class ret() extends programControl("RETURN",2,0x8800){
+case class jumpUC(labelName:String) extends programControl("JUMP",0x8000) with hasLabel
+case class call(labelName:String)   extends programControl("CALL",0x8c00) with hasLabel
+case class ret() extends programControl("RETURN",0x8800){
   override def toString = opName
   def toHex = ins
 } 
@@ -191,10 +187,10 @@ trait conditionJump extends hasLabel {
   override def toString = opName + " " + cond + ", " + labelName
 }
 
-case class  jumpz(labelName:String) extends programControl("JUMP",4,0x9000)  with conditionJump
-case class jumpnz(labelName:String) extends programControl("JUMP",4,0x9400)  with conditionJump
-case class  jumpc(labelName:String) extends programControl("JUMP",4,0x9800)  with conditionJump
-case class jumpnc(labelName:String) extends programControl("JUMP",4,0x9c00)  with conditionJump
+case class  jumpz(labelName:String) extends programControl("JUMP",0x9000)  with conditionJump
+case class jumpnz(labelName:String) extends programControl("JUMP",0x9400)  with conditionJump
+case class  jumpc(labelName:String) extends programControl("JUMP",0x9800)  with conditionJump
+case class jumpnc(labelName:String) extends programControl("JUMP",0x9c00)  with conditionJump
   
 case class load(f:reg,s:opd) extends alu("LOAD", f,s,0)
 case class  and(f:reg,s:opd) extends alu("AND",  f,s,1)
@@ -205,8 +201,8 @@ case class addc(f:reg,s:opd) extends alu("ADDCY",f,s,5)
 case class  sub(f:reg,s:opd) extends alu("SUB",  f,s,6)
 case class subc(f:reg,s:opd) extends alu("SUBCY",f,s,7)
 
-case class  input(f:reg,s:opd) extends inout("INPUT", f,s,0,0xa,0xa000) 
-case class output(f:reg,s:opd) extends inout("OUTPUT",f,s,0,0xe,0xe000) 
+case class  input(f:reg,s:opd) extends inout("INPUT", f,s,0,0xa000) 
+case class output(f:reg,s:opd) extends inout("OUTPUT",f,s,0,0xe000) 
 
 case class  sr0(r:reg) extends shift("SR0",r,0xe)
 case class  sr1(r:reg) extends shift("SR1",r,0xf)

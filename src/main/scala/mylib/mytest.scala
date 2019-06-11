@@ -79,3 +79,12 @@ object mytest extends asmParser {
     println(PSM.disAsm(bin))
   }
 }
+
+object mytest1 {
+  def main(argv:Array[String]) {
+    import scala.reflect.runtime.universe._
+    val expr = reify { class Flower { def name = "Rose" } }
+    println(expr.tree)
+    println(showRaw(expr.tree))
+  }
+}
