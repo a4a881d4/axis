@@ -98,14 +98,15 @@ case class zcpsmBusExt(AW:Int,DW:Int,AWidth:Int,base:Int) extends Component {
     val eBus = master(zcpsmIORW(AW*8,DW*8))
   }
   val wBus = io.zBus.toWriteOnly()
+  val inp = List.fill(DW)(Bits(8 bits))
   for(i <- 0 until AW) {
     io.eBus.port_id(i*8+7 downto i*8) := wBus.Q(base+DW+i)
   }
   for(i <- 0 until DW) {
     io.eBus.out_port(i*8+7 downto i*8) := wBus.Q(base+i)
+    inp(i) := Mux(io.zBus.port_id.asUInt === base+i, io.eBus.in_port(i*8+7 downto i*8), B(0,8 bits))
   }
-  val ra = io.zBus.port_id.asUInt - base
-  io.zBus.in_port := io.eBus.in_port.resize((1<<AWidth)*8 bits).subdivideIn(8 bits)(ra)
+  io.zBus.in_port := inp.reduce(_ | _)
   io.eBus.write_strobe := RegNext(wBus.written(base+DW-1))
   io.eBus.read_strobe  := RegNext(io.zBus.read(base+DW-1))
   io.eBus.ce := RegNext(io.zBus.hit(base+DW-1))
