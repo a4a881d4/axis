@@ -34,6 +34,9 @@ case class zcpsmIORW(AWidth:Int,DWidth:Int=8) extends Bundle with IMasterSlave w
     ret.ce           := ce
     ret
   }
+  def hit(id:Int) = (port_id.asUInt === id)
+  def written(id:Int) = ce && write_strobe && hit(id)
+  def read(id:Int) = ce && read_strobe && hit(id)
 }
 
 case class zcpsmIOW(AWidth:Int,DWidth:Int=8) extends Bundle with IMasterSlave with zcpsmIO {
@@ -79,7 +82,6 @@ case class zcpsmDecode(AWidth:Int,width:Int,used:List[Int]) extends Component {
   val inp = List.fill(num)(Bits(8 bits))
   for(i <- 0 until num) {
     io.busS(i).port_id      := io.busM.port_id(width-1 downto 0)
-    io.busS(i).out_port     := io.busM.out_port
     io.busS(i).write_strobe := io.busM.write_strobe
     io.busS(i).read_strobe  := io.busM.read_strobe
     io.busS(i).out_port     := io.busM.out_port
@@ -104,8 +106,9 @@ case class zcpsmBusExt(AW:Int,DW:Int,AWidth:Int,base:Int) extends Component {
   }
   val ra = io.zBus.port_id.asUInt - base
   io.zBus.in_port := io.eBus.in_port.resize((1<<AWidth)*8 bits).subdivideIn(8 bits)(ra)
-  io.eBus.write_strobe := wBus.written(base+DW-1)
-  io.eBus.read_strobe  := io.zBus.toReadOnly.read(base+DW-1)
+  io.eBus.write_strobe := RegNext(wBus.written(base+DW-1))
+  io.eBus.read_strobe  := RegNext(io.zBus.read(base+DW-1))
+  io.eBus.ce := RegNext(io.zBus.hit(base+DW-1))
 }
 case class eBusConfig(AW:Int,DW:Int,port:Int)
 case class eMemConfig(AW:Int,Depth:Int,port:Int)
