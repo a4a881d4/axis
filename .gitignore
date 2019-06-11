@@ -51,5 +51,6 @@ y.tab.h
 lex.yy.c
 *.psm
 testzcpsm*
+*.bin
 
 
