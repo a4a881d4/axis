@@ -113,9 +113,9 @@ case class zRegFile(AWidth:Int,DWidth:Int) extends Component {
   io.dob := rf(io.addrb)
 }
  
-case class zcpsm() extends Component {
+case class zcpsm(PWidth:Int) extends Component {
   val io = new Bundle {
-    val prog  = master(zcpsmProg(12))
+    val prog  = master(zcpsmProg(PWidth))
     val iobus = master(zcpsmIORW(8))
   }
 
@@ -218,7 +218,7 @@ case class zcpsm() extends Component {
       zflag := False
     }
   }
-  io.prog.address := pc
+  io.prog.address := pc(PWidth-1 downto 0)
   io.iobus.out_port := ALU_A
 
   as.io.A := ALU_A

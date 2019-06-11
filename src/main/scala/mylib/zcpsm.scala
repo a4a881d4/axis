@@ -7,6 +7,7 @@ import open5g.lib.zcpsm._
 
 object MyZ {
   def main(srgs: Array[String]) {
-    SpinalVerilog(new zcpsm())
+
+    SpinalVerilog(new zcpsm(12))
   }
 }

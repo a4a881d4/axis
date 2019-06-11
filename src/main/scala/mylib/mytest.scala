@@ -1,6 +1,9 @@
 package mylib
 
 import open5g.lib.zcpsm.tools._
+import open5g.lib.zcpsm._
+import spinal.core._
+import spinal.lib._
 
 object mytest extends asmParser {
   val psm = """
@@ -108,3 +111,15 @@ object assembler extends asmParser {
     }
   }
 }
+object MyISP {
+  def main(srgs: Array[String]) {
+    val cfg = zcpsmISPConfig(10,
+                          4,
+                          eBusConfig(2,2,0),
+                          List(1,2),
+                          mytest.psm
+                          )
+    SpinalVerilog(new zcpsmISP(cfg))
+  }
+}
+

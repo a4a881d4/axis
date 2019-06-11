@@ -5,116 +5,59 @@ import spinal.lib._
 import scala.collection._
 
 trait zcpsmIO 
-case class zcpsmIORW(AWidth:Int) extends Bundle with IMasterSlave with zcpsmIO {
+case class zcpsmIORW(AWidth:Int,DWidth:Int=8) extends Bundle with IMasterSlave with zcpsmIO {
   val port_id       = Bits(AWidth bits)
   val write_strobe  = Bool
   val read_strobe   = Bool
-  val out_port      = Bits(8 bits)
-  val in_port       = Bits(8 bits)
+  val out_port      = Bits(DWidth bits)
+  val in_port       = Bits(DWidth bits)
   val ce            = Bool
   def asMaster = {
     out(port_id,out_port,write_strobe,read_strobe,ce)
     in(in_port)
   }
 
-  def <<(that : zcpsmIORW) : Unit = that >> this
-  def >> (that : zcpsmIORW) : Unit = {
-    this.port_id      := that.port_id
-    this.write_strobe := that.write_strobe
-    this.read_strobe  := that.read_strobe
-    this.out_port     := that.out_port
-    this.ce           := that.ce
-    that.in_port      := this.in_port
-  }
-
-  def <<(that : zcpsmIOW) : Unit = that >> this
-  def >>(that : zcpsmIOW) : Unit = {
-    this.port_id      := that.port_id
-    this.write_strobe := that.write_strobe
-    this.out_port     := that.out_port
-    this.ce           := that.ce
-  }
-
-  def <<(that : zcpsmIOR) : Unit = that >> this
-  def >> (that : zcpsmIOR) : Unit = {
-    this.port_id      := that.port_id
-    this.read_strobe  := that.read_strobe
-    this.ce           := that.ce
-    that.in_port      := this.in_port
-  }
-
   def toReadOnly(): zcpsmIOR ={
-    val ret = zcpsmIOR(AWidth)
-    ret << this
+    val ret = zcpsmIOR(AWidth,DWidth)
+    ret.port_id      := port_id
+    ret.read_strobe  := read_strobe
+    ret.ce           := ce
+    in_port          := ret.in_port
     ret
   }
 
   def toWriteOnly(): zcpsmIOW ={
-    val ret = zcpsmIOW(AWidth)
-    ret << this
+    val ret = zcpsmIOW(AWidth,DWidth)
+    ret.port_id      := port_id
+    ret.write_strobe := write_strobe
+    ret.out_port     := out_port
+    ret.ce           := ce
     ret
   }
 }
 
-case class zcpsmIOW(AWidth:Int) extends Bundle with IMasterSlave with zcpsmIO {
+case class zcpsmIOW(AWidth:Int,DWidth:Int=8) extends Bundle with IMasterSlave with zcpsmIO {
   val port_id       = Bits(AWidth bits)
   val write_strobe  = Bool
-  val out_port      = Bits(8 bits)
+  val out_port      = Bits(DWidth bits)
   val ce            = Bool
   def asMaster = {
     out(port_id,out_port,write_strobe,ce)
   }
-  def Q(id:Int) = RegNextWhen(out_port,ce && write_strobe && (port_id.asUInt === id))
-
-  def <<(that : zcpsmIORW) : Unit = that >> this
-  def >>(that : zcpsmIORW) : Unit = {
-    that.port_id      := this.port_id(that.AWidth-1 downto 0)
-    that.write_strobe := this.write_strobe
-    that.ce           := this.ce
-    that.out_port     := this.out_port
-  }
-  def <<(that : zcpsmIOW) : Unit = that >> this
-  def >>(that : zcpsmIOW) : Unit = {
-    that.port_id      := this.port_id(that.AWidth-1 downto 0)
-    that.write_strobe := this.write_strobe
-    that.ce           := this.ce
-    that.out_port     := this.out_port
-  }
+  def Q(id:Int) = RegNextWhen(out_port,written(id))
+  def written(id:Int) = ce && write_strobe && (port_id.asUInt === id)
 }
 
-case class zcpsmIOR(AWidth:Int) extends Bundle with IMasterSlave with zcpsmIO {
+case class zcpsmIOR(AWidth:Int,DWidth:Int=8) extends Bundle with IMasterSlave with zcpsmIO {
   val port_id       = Bits(AWidth bits)
   val read_strobe   = Bool
-  val in_port       = Bits(8 bits)
+  val in_port       = Bits(DWidth bits)
   val ce            = Bool
   def asMaster = {
     out(port_id,read_strobe,ce)
     in(in_port)
   }
-  def <<(that : zcpsmIORW) : Unit = that >> this
-  def >>(that : zcpsmIORW) : Unit = {
-    assert(that.AWidth <= this.AWidth)
-    that.port_id      := this.port_id(that.AWidth-1 downto 0)
-    that.read_strobe  := this.read_strobe
-    that.ce           := this.ce
-    this.in_port      := that.in_port
-  }
-  def <<(that : zcpsmIOR) : Unit = that >> this
-  def >>(that : zcpsmIOR) : Unit = {
-    assert(that.AWidth <= this.AWidth)
-    that.port_id      := this.port_id(that.AWidth-1 downto 0)
-    that.read_strobe  := this.read_strobe
-    that.ce           := this.ce
-    this.in_port      := that.in_port
-  }
-  def readed(id:Int) = ce && read_strobe && (port_id.asUInt === id)
-  val data = mutable.Map[Int,Bits]()
-  def register(id:Int,s:Bits) = data += (id -> s)
-  def done = {
-    for(i <- 0 until (1<<AWidth)) {
-      when(port_id === i)
-    }
-  }
+  def read(id:Int) = ce && read_strobe && (port_id.asUInt === id)
 }
 
 case class zcpsmProg(AWidth:Int) extends Bundle with IMasterSlave {
@@ -126,19 +69,86 @@ case class zcpsmProg(AWidth:Int) extends Bundle with IMasterSlave {
   }
 }
 
-case class zcpsmDecode(width:Int) extends Component {
-  val num = (1<<width)
+case class zcpsmDecode(AWidth:Int,width:Int,used:List[Int]) extends Component {
+  val num = used.length
   val io = new Bundle {
-    val cein      = Bool
-    val port_id_H = in  Bits(width bits)
-    val ce        = out Bits(num bits)
+    val busM = slave(zcpsmIORW(AWidth))
+    val busS = Vec(master(zcpsmIORW(AWidth-width)),num)
   }
+  val port_id_H = io.busM.port_id(AWidth-1 downto AWidth-width)
+  val inp = List.fill(num)(Bits(8 bits))
   for(i <- 0 until num) {
-    when(io.port_id_H.asUInt === i) {
-      io.ce(i) := io.cein
-    } otherwise {
-      io.ce(i) := False
-    }
+    io.busS(i).port_id      := io.busM.port_id(width-1 downto 0)
+    io.busS(i).out_port     := io.busM.out_port
+    io.busS(i).write_strobe := io.busM.write_strobe
+    io.busS(i).read_strobe  := io.busM.read_strobe
+    io.busS(i).out_port     := io.busM.out_port
+    io.busS(i).ce           := io.busM.ce && (port_id_H === used(i))
+    inp(i) := Mux(io.busM.ce && (port_id_H === used(i)),
+      io.busS(i).in_port, B(0,8 bits))
   }
+  io.busM.in_port := inp.reduce(_ | _)
 }
 
+case class zcpsmBusExt(AW:Int,DW:Int,AWidth:Int,base:Int) extends Component {
+  val io = new Bundle {
+    val zBus = slave(zcpsmIORW(AWidth))
+    val eBus = master(zcpsmIORW(AW*8,DW*8))
+  }
+  val wBus = io.zBus.toWriteOnly()
+  for(i <- 0 until AW) {
+    io.eBus.port_id(i*8+7 downto i*8) := wBus.Q(base+DW+i)
+  }
+  for(i <- 0 until DW) {
+    io.eBus.out_port(i*8+7 downto i*8) := wBus.Q(base+i)
+  }
+  val ra = io.zBus.port_id.asUInt - base
+  io.zBus.in_port := io.eBus.in_port.resize((1<<AWidth)*8 bits).subdivideIn(8 bits)(ra)
+  io.eBus.write_strobe := wBus.written(base+DW-1)
+  io.eBus.read_strobe  := io.zBus.toReadOnly.read(base+DW-1)
+}
+case class eBusConfig(AW:Int,DW:Int,port:Int)
+case class eMemConfig(AW:Int,Depth:Int,port:Int)
+case class egressConfig(port:Int)
+case class ingressConfig(port:Int)
+case class zcpsmISPConfig(PWidth:Int,
+                          HWidth:Int,
+                          extBus:eBusConfig,
+                          port:List[Int],
+                          psm:String
+                          )
+case class zcpsmISP(cfg:zcpsmISPConfig) extends Component {
+  val outPorts = cfg.port.length
+  val hasExtBus = cfg.extBus != null
+  val io = new Bundle {
+    val busS = Vec(master(zcpsmIORW(8-cfg.HWidth)),outPorts)
+    val eBus = if(hasExtBus) master(zcpsmIORW(cfg.extBus.AW*8,cfg.extBus.DW*8)) else null
+    val prog = slave(zcpsmIOW(cfg.PWidth,18))
+  }
+  val cpu = zcpsm(cfg.PWidth)
+  import open5g.lib.zcpsm.tools.asmParser
+  val parser = new asmParser
+  val (a,_) = parser.fromFile(cfg.psm)
+  def initProg = for(i <- 0 until (1<<cfg.PWidth)) yield {
+    if(i < a.length) B(BigInt(a(i).toHex),18 bits) else B(0,18 bits)
+  }
+  val progMem = Mem(Bits(18 bits),initialContent = initProg)
+  progMem.write( data    = io.prog.out_port,
+                 address = io.prog.port_id.asUInt,
+                 enable  = io.prog.write_strobe)
+  cpu.io.prog.instruction := progMem(cpu.io.prog.address)
+  val dList = if(hasExtBus) cfg.port ::: List(cfg.extBus.port) else cfg.port
+  val dec = zcpsmDecode(8,cfg.HWidth,dList)
+  dec.io.busM <> cpu.io.iobus
+  for(i <- 0 until outPorts) {
+    dec.io.busS(i) <> io.busS(i)
+  }
+  if(hasExtBus) {
+    val eb = zcpsmBusExt(cfg.extBus.AW,
+      cfg.extBus.DW,
+      8-cfg.HWidth,
+      0)
+    eb.io.zBus <> dec.io.busS(outPorts)
+    io.eBus <> eb.io.eBus
+  } 
+}
