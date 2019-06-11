@@ -81,10 +81,30 @@ object mytest extends asmParser {
 }
 
 object mytest1 {
-  def main(argv:Array[String]) {
-    import scala.reflect.runtime.universe._
-    val expr = reify { class Flower { def name = "Rose" } }
-    println(expr.tree)
-    println(showRaw(expr.tree))
+  def main(args:Array[String]){
+    dsltest.t1
+  }
+}
+
+import java.io.{File, FileWriter, BufferedWriter, PrintWriter}
+import scala.io.Source
+
+object assembler extends asmParser {
+  def main(args: Array[String]) {
+    val fn = args(0)
+    if( new File(fn).exists ) {
+      val buffer = Source.fromFile(fn)
+      val moduleString = buffer.getLines
+      val moduleWithOutComent = removeComment(moduleString).reduce(_+"\n"+_)
+      val (a,b) = fromFile(moduleWithOutComent)
+      for(i <- 0 until a.length) {
+        println(a(i)+f" ;; ${a(i).toHex}%05X")
+      }
+      println(b)
+      println(toFile)
+      val bin = a.map(_.toHex)
+      println(PSM.disAsm(bin))  
+      println(toFile)
+    }
   }
 }
