@@ -115,12 +115,8 @@ case class zRegFile(AWidth:Int,DWidth:Int) extends Component {
  
 case class zcpsm() extends Component {
   val io = new Bundle {
-    val address = out UInt(12 bits)
-    val instruction = in Bits(18 bits)
-    val port_id = out Bits(8 bits)
-    val write_strobe,read_strobe = out Bool
-    val out_port = out Bits(8 bits)
-    val in_port = in Bits(8 bits)
+    val prog  = master(zcpsmProg(12))
+    val iobus = master(zcpsmIORW(8))
   }
 
   val rf = zRegFile(5,8)
@@ -163,7 +159,7 @@ case class zcpsm() extends Component {
       pc := nextPc
       jumpSet := True 
       when(jumpSet) {
-        ins := io.instruction
+        ins := io.prog.instruction
       } otherwise {
         ins := B"001100000000000000"
       }
@@ -172,24 +168,24 @@ case class zcpsm() extends Component {
     pc := nextPc
     jumpSet := True 
     when(jumpSet) {
-      ins := io.instruction
+      ins := io.prog.instruction
     } otherwise {
       ins := B"001100000000000000"
     }
   }
 
   val read_strobe = (ins( 15 downto 13 ) === B"101")
-  io.read_strobe := read_strobe
+  io.iobus.read_strobe := read_strobe
   val write_strobe = (ins( 15 downto 13 ) === B"111")
-  io.write_strobe := write_strobe
+  io.iobus.write_strobe := write_strobe
 
   rf.io.addra := (ins(17) ## ins(11 downto 8)).asUInt
   rf.io.addrb := (ins(16) ## ins(7 downto 4)).asUInt
-  rf.io.dia :=  Mux(read_strobe,io.in_port,alu_out)
+  rf.io.dia :=  Mux(read_strobe,io.iobus.in_port,alu_out)
   val wea = (ins(15 downto 13 ) =/= B"100") && (ins(15 downto 13 ) =/= B"111")
   rf.io.wea := wea
 
-  io.port_id := Mux(ins(12), rf.io.dob, ins(7 downto 0))
+  io.iobus.port_id := Mux(ins(12), rf.io.dob, ins(7 downto 0))
   val ALU_OP = Mux(ins(15), ins(2 downto 0), ins(14 downto 12))
   val SHIFT_OP = ins(3 downto 0)
   val ALU_A = rf.io.doa
@@ -222,8 +218,8 @@ case class zcpsm() extends Component {
       zflag := False
     }
   }
-  io.address := pc
-  io.out_port := ALU_A
+  io.prog.address := pc
+  io.iobus.out_port := ALU_A
 
   as.io.A := ALU_A
   as.io.B := ALU_B
@@ -243,4 +239,5 @@ case class zcpsm() extends Component {
   sR.io.Ci := cflag
   sR.io.OP := SHIFT_OP(2 downto 0)
 
+  io.iobus.ce := True
 }
