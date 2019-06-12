@@ -11,44 +11,35 @@ trait plugin {
   val zBus = slave(zcpsmIORW(AWidth))
   val wBus = zBus.toWriteOnly()
 }
-case class zcpsmMemExtSmall(AW:Int,AWidth:Int,Depth:Int,eBusName:String="ParaMem") extends Component with plugin {
-  def eBusFactory = null
-  val addr = RegInit(U(0,AW*8 bits))
-  when(zBus.read(AW) || zBus.written(AW)) {
-    addr := addr + 1
-  } otherwise {
-    for(i <- 0 until AW) {
-      when(zBus.written(i)) {
-        addr(i*8+7 downto i*8) := zBus.out_port.asUInt
-      }
-    }
-  }
-  val pM = Mem(Bits(8 bits),Depth)
-  val width = log2Up(Depth)
-  zBus.in_port := pM(addr(width-1 downto 0))
-  pM.write( address = addr(width-1 downto 0),
-            data    = zBus.out_port,
-            enable  = zBus.written(AW))
-}
-case class zcpsmMemExtBlock(BW:Int, AWidth:Int, Depth:Int, eBusName:String="NocCfg") extends Component with plugin {
-  def eBusFactory = null
+trait zcpsmMem extends plugin {
+  val Depth:Int
   val width = log2Up(Depth)
   val addr  = RegInit(U(0,width bits))
-  val block = wBus.Q(1)(BW-1 downto 0).asUInt
-
-  when(zBus.read(2) || zBus.written(2)) {
+  when(zBus.read(0) || zBus.written(0)) {
     addr := addr + 1
   } otherwise {
-    when(zBus.written(0)) {
+    when(zBus.written(1)) {
       addr := zBus.out_port.asUInt(width-1 downto 0)
     }
   }
+}
+case class zcpsmMemSmall(AWidth:Int,Depth:Int,eBusName:String="ParaMem") extends Component with zcpsmMem {
+  def eBusFactory = null
+  val pM = Mem(Bits(8 bits),Depth)
+  zBus.in_port := pM(addr)
+  pM.write( address = addr,
+            data    = zBus.out_port,
+            enable  = zBus.written(0))
+}
+case class zcpsmMemBlock(BW:Int, AWidth:Int, Depth:Int, eBusName:String="NocCfg") extends Component with zcpsmMem {
+  def eBusFactory = null
+  val block = wBus.Q(2)(BW-1 downto 0).asUInt
   val pM = Mem(Bits(8 bits),(1<<(width+BW)))
   val ramA = block @@ addr
   zBus.in_port := pM.readSync(ramA)
   pM.write( address = ramA,
             data    = zBus.out_port,
-            enable  = zBus.written(2))
+            enable  = zBus.written(0))
 }
 case class zcpsmBusExt(AW:Int,DW:Int,AWidth:Int,eBusName:String="DebugIO") extends Component with plugin {
   def eBusFactory = master(zcpsmIORW(AW*8,DW*8))
@@ -112,7 +103,7 @@ case class zcpsmISP(cfg:zcpsmISPConfig) extends Component {
     eBus.setName(eb.eBusName)
   }
   {
-    val eb = zcpsmMemExtBlock(8,8-cfg.HWidth,64)
+    val eb = zcpsmMemBlock(8,8-cfg.HWidth,64)
     val eBus = eb.eBusFactory
     eb.zBus <> dec.io.busS(outPorts+1)
   } 
