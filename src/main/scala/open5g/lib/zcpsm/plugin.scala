@@ -9,8 +9,9 @@ trait plugin {
   val eBusName    : String
 
   val zBus = slave(zcpsmIORW(AWidth))
+  val wBus = zBus.toWriteOnly()
 }
-case class zcpsmMemExt(AW:Int,AWidth:Int,Depth:Int,eBusName:String="ParaMem") extends Component with plugin {
+case class zcpsmMemExtSmall(AW:Int,AWidth:Int,Depth:Int,eBusName:String="ParaMem") extends Component with plugin {
   def eBusFactory = null
   val addr = RegInit(U(0,AW*8 bits))
   when(zBus.read(AW) || zBus.written(AW)) {
@@ -29,10 +30,29 @@ case class zcpsmMemExt(AW:Int,AWidth:Int,Depth:Int,eBusName:String="ParaMem") ex
             data    = zBus.out_port,
             enable  = zBus.written(AW))
 }
+case class zcpsmMemExtBlock(BW:Int, AWidth:Int, Depth:Int, eBusName:String="NocCfg") extends Component with plugin {
+  def eBusFactory = null
+  val width = log2Up(Depth)
+  val addr  = RegInit(U(0,width bits))
+  val block = wBus.Q(1)(BW-1 downto 0).asUInt
+
+  when(zBus.read(2) || zBus.written(2)) {
+    addr := addr + 1
+  } otherwise {
+    when(zBus.written(0)) {
+      addr := zBus.out_port.asUInt(width-1 downto 0)
+    }
+  }
+  val pM = Mem(Bits(8 bits),(1<<(width+BW)))
+  val ramA = block @@ addr
+  zBus.in_port := pM.readSync(ramA)
+  pM.write( address = ramA,
+            data    = zBus.out_port,
+            enable  = zBus.written(2))
+}
 case class zcpsmBusExt(AW:Int,DW:Int,AWidth:Int,eBusName:String="DebugIO") extends Component with plugin {
   def eBusFactory = master(zcpsmIORW(AW*8,DW*8))
   val eBus = eBusFactory
-  val wBus = zBus.toWriteOnly()
   val inp = List.fill(DW)(Bits(8 bits))
   for(i <- 0 until AW) {
     eBus.port_id(i*8+7 downto i*8) := wBus.Q(DW+i)
@@ -86,13 +106,13 @@ case class zcpsmISP(cfg:zcpsmISPConfig) extends Component {
     val eb = zcpsmBusExt(cfg.extBus.AW,
       cfg.extBus.DW,
       8-cfg.HWidth)
-    val eBus = eb.eBusFactory //master(zcpsmIORW(cfg.extBus.AW*8,cfg.extBus.DW*8))
+    val eBus = eb.eBusFactory 
     eb.zBus <> dec.io.busS(outPorts)
     eBus <> eb.eBus
     eBus.setName(eb.eBusName)
   }
   {
-    val eb = zcpsmMemExt(1,8-cfg.HWidth,64)
+    val eb = zcpsmMemExtBlock(8,8-cfg.HWidth,64)
     val eBus = eb.eBusFactory
     eb.zBus <> dec.io.busS(outPorts+1)
   } 
