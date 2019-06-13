@@ -39,10 +39,11 @@ trait zcpsmMemWrite extends zcpsmMem {
             data    = zBus.out_port,
             enable  = zBus.written(0))
 }
-case class zcpsmExt(AWidth:Int,eBusName:String="ParaMem") extends plugin {
+case class zcpsmExt(AWidth:Int,eBusName:String="ParaMem") extends Component with plugin {
   def eBusFactory = master(zcpsmIORW(AWidth))
   val eBus = eBusFactory
-  eBus <> zBus
+  val bus = zcpsmIORW(AWidth)
+  zBus <> eBus
 }
 case class zcpsmMemSmall(BW:Int, AWidth:Int,Depth:Int,eBusName:String="ParaMem") 
   extends Component with zcpsmMemBlocked with zcpsmMemWrite {
@@ -114,6 +115,14 @@ case class zcpsmISPConfig(PWidth:Int,HWidth:Int,psm:String) {
   //   )
   //   for(i <- 0 until exts.length) addPlugin(i,exts(i))
   // }
+  def memOut(core:zcpsmISP) : Area = new Area {
+    import core._
+    val eb = zcpsmMemOut(0,cfg.AWidth, 64, "Egress1")
+    val eBus = eb.eBusFactory
+    eBus <> eb.eBus
+    eBus.setName(eb.eBusName)
+    dec.io.busS(2) <> eb.zBus
+  }
   val ext:Map[Int,plugin] = Map(
     // 2 -> zcpsmMemOut(0,AWidth, 64, "Egress0")
     // 0 -> zcpsmExt(AWidth,"GP1")
@@ -139,17 +148,23 @@ case class zcpsmISP(cfg:zcpsmISPConfig) extends Component {
                  address = io.prog.port_id.asUInt,
                  enable  = io.prog.write_strobe)
   cpu.io.prog.instruction := progMem(cpu.io.prog.address)
-  val dList = List(0)
+  val dList = List(0,1,2)
   val dec = zcpsmDecode(8,cfg.HWidth,dList)
   dec.io.busM <> cpu.io.iobus
   
   {
-    val eb = zcpsmMemSmall(0,cfg.AWidth,64,"ParaMem") //zcpsmExt(cfg.AWidth,"GP0")
-    if(eb.eBus != null) {
-      val eBus = eb.eBusFactory
-      eBus <> eb.eBus
-      eBus.setName(eb.eBusName)
-    }
-    eb.zBus <> dec.io.busS(0)
+    val eb = zcpsmMemOut(0,cfg.AWidth, 64, "Egress0")
+    val eBus = eb.eBusFactory
+    eBus <> eb.eBus
+    eBus.setName(eb.eBusName)
+    dec.io.busS(1) <> eb.zBus
   }
+  {
+    val eb = zcpsmExt(cfg.AWidth,"GP0")
+    val eBus = eb.eBusFactory
+    eBus <> eb.eBus
+    dec.io.busS(0) <> eb.zBus
+    eBus.setName(eb.eBusName)
+  }
+  val p1 = cfg.memOut(this)
 }
