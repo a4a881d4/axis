@@ -113,9 +113,9 @@ object assembler extends asmParser {
 }
 object MyISP {
   def main(srgs: Array[String]) {
-    val cfg = zcpsmISPConfig(10,4,mytest.psm)
-    // cfg.all
-    SpinalVerilog(new zcpsmISP(cfg))
+    val cfg = zcpsmConfig(10,4,mytest.psm)
+    cfg.all
+    SpinalVerilog(new ZcpsmCore(cfg))
   }
 }
 

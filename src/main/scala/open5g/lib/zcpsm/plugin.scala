@@ -1,138 +1,120 @@
 package open5g.lib.zcpsm
-
 import spinal.core._
 import spinal.lib._
 import scala.collection._
-trait plugin {
-  val AWidth      : Int
-  def eBusFactory : Bundle
-  val eBusName    : String
-  val zBus = slave(zcpsmIORW(AWidth))
-  val wBus = zBus.toWriteOnly()
+
+abstract class peripheralExt {
+  def getName : String
+  def applyIt(core : ZcpsmCore, port:Int) : Area
+  var port : Int = -1
+  def hasEBus : Boolean
 }
 
-trait zcpsmMem extends plugin {
-  val Depth:Int
-  val width = log2Up(Depth)
-  val addr  = RegInit(U(0,width bits))
-  when(zBus.read(0) || zBus.written(0)) {
-    addr := addr + 1
-  } otherwise {
-    when(zBus.written(1)) {
-      addr := zBus.out_port.asUInt(width-1 downto 0)
-    }
-  }
-  def ramA : UInt
-  val pM = Mem(Bits(8 bits),1 << ramA.getWidth)
-}
-
-trait zcpsmMemBlocked extends zcpsmMem {
-  val BW:Int
-  def ramA = if(BW>0) {
-    val block = wBus.Q(2)(BW-1 downto 0).asUInt
-    block @@ addr
-  } else addr
-}
-
-trait zcpsmMemWrite extends zcpsmMem {
-  pM.write( address = ramA,
-            data    = zBus.out_port,
-            enable  = zBus.written(0))
-}
-case class zcpsmExt(AWidth:Int,eBusName:String="ParaMem") extends Component with plugin {
-  def eBusFactory = master(zcpsmIORW(AWidth))
-  val eBus = eBusFactory
-  val bus = zcpsmIORW(AWidth)
-  zBus <> eBus
-}
-case class zcpsmMemSmall(BW:Int, AWidth:Int,Depth:Int,eBusName:String="ParaMem") 
-  extends Component with zcpsmMemBlocked with zcpsmMemWrite {
-  def eBusFactory = null
-  val eBus = eBusFactory
-  zBus.in_port := pM(ramA)
-}
-
-case class zcpsmMemBig(BW:Int, AWidth:Int, Depth:Int, eBusName:String="NocCfg") 
-  extends Component with zcpsmMemBlocked with zcpsmMemWrite {
-  def eBusFactory = null
-  val eBus = eBusFactory
-  zBus.in_port := pM.readSync(ramA)
-}
-case class zcpsmMemIn(BW:Int, AWidth:Int, Depth:Int, eBusName:String="Ingress")
-  extends Component with zcpsmMemBlocked {
-    def eBusFactory = slave(zcpsmIOW(width,8))
-    val eBus = eBusFactory
-    zBus.in_port := pM.readSync(ramA)
-    pM.write(address = eBus.port_id.asUInt,
-             data    = eBus.out_port,
-             enable  = eBus.write_strobe) 
-}
-case class zcpsmMemRegOut(BW:Int, AWidth:Int, Depth:Int, eBusName:String="Egress")
-  extends Component with zcpsmMemBlocked with zcpsmMemWrite {
-    def eBusFactory = slave(zcpsmIOR(width,8))
-    val eBus = eBusFactory
-    zBus.in_port := B(0, 8 bits)
-    eBus.in_port := pM.readSync(address = eBus.port_id.asUInt,enable = eBus.read_strobe)
-}
-case class zcpsmMemOut(BW:Int, AWidth:Int, Depth:Int, eBusName:String="Egress")
-  extends Component with zcpsmMemBlocked with zcpsmMemWrite {
-    def eBusFactory = slave(zcpsmIOR(width,8))
-    val eBus = eBusFactory
-    zBus.in_port := B(0, 8 bits)
-    eBus.in_port := pM(eBus.port_id.asUInt)
-}
-case class zcpsmBusExt(AW:Int,DW:Int,AWidth:Int,eBusName:String="DebugIO") extends Component with plugin {
-  def eBusFactory = master(zcpsmIORW(AW*8,DW*8))
-  val eBus = eBusFactory
-  val inp = List.fill(DW)(Bits(8 bits))
-  for(i <- 0 until AW) {
-    eBus.port_id(i*8+7 downto i*8) := wBus.Q(DW+i)
-  }
-  for(i <- 0 until DW) {
-    eBus.out_port(i*8+7 downto i*8) := wBus.Q(i)
-    inp(i) := Mux(zBus.port_id.asUInt === i, eBus.in_port(i*8+7 downto i*8), B(0,8 bits))
-  }
-  zBus.in_port := inp.reduce(_ | _)
-  eBus.write_strobe := RegNext(wBus.written(DW-1))
-  eBus.read_strobe  := RegNext(zBus.read(DW-1))
-  eBus.ce := RegNext(zBus.hit(DW-1))
-}
-
-case class zcpsmISPConfig(PWidth:Int,HWidth:Int,psm:String) {
-  val AWidth = 8-HWidth
-  // val ext = mutable.Map[Int,T<:plugin]()
-  // def addPlugin[T<:plugin](p:Int,com:T) = ext += (p -> com)
-  // def all = {
-  //   val exts = List(
-  //     zcpsmExt(AWidth,"GP0"),
-  //     zcpsmExt(AWidth,"GP1"),
-  //     zcpsmMemSmall(0,AWidth,64,"ParaMem"),
-  //     zcpsmMemBig(8,AWidth,16,"NocMem"),
-  //     zcpsmMemIn(0,AWidth, 64, "Ingress"),
-  //     zcpsmMemOut(0,AWidth, 64, "Egress0"),
-  //     zcpsmMemRegOut(8,AWidth, 16, "Egress1"),
-  //     zcpsmBusExt(2,2,AWidth,"DebugIO")
-  //   )
-  //   for(i <- 0 until exts.length) addPlugin(i,exts(i))
-  // }
-  def memOut(core:zcpsmISP) : Area = new Area {
+class zcpsmExt(AWidth:Int,eBusName:String="ParaMem") extends peripheralExt {
+  def getName = "zcpsmExt"
+  def hasEBus = true
+  def applyIt(core : ZcpsmCore, port:Int) = new Area {
     import core._
-    val eb = zcpsmMemOut(0,cfg.AWidth, 64, "Egress1")
+    val eb = peripheralExtension(AWidth,eBusName)
     val eBus = eb.eBusFactory
     eBus <> eb.eBus
     eBus.setName(eb.eBusName)
-    dec.io.busS(2) <> eb.zBus
+    dec.io.busS(port) <> eb.zBus 
   }
-  val ext:Map[Int,plugin] = Map(
-    // 2 -> zcpsmMemOut(0,AWidth, 64, "Egress0")
-    // 0 -> zcpsmExt(AWidth,"GP1")
-    // ,
-    // 1 -> zcpsmExt(AWidth,"GP1"),
-    // 2 -> zcpsmMemSmall(0,AWidth,64,"ParaMem")
-  ) 
 }
 
-case class zcpsmISP(cfg:zcpsmISPConfig) extends Component {
+class zcpsmMemSmall(BW:Int, AWidth:Int,Depth:Int,eBusName:String="ParaMem") 
+  extends peripheralExt {
+  def getName = "zcpsmMemSmall"
+  def hasEBus = false
+  def applyIt(core : ZcpsmCore, port:Int) = new Area {
+    import core._
+    val eb = peripheralMemSmall(BW, AWidth,Depth,eBusName)
+    dec.io.busS(port) <> eb.zBus 
+  }
+}
+class zcpsmMemBig(BW:Int, AWidth:Int,Depth:Int,eBusName:String="NocCfg") 
+  extends peripheralExt {
+  def getName = "zcpsmMemBig"
+  def hasEBus = false
+  def applyIt(core : ZcpsmCore, port:Int) = new Area {
+    import core._
+    val eb = peripheralMemBig(BW, AWidth,Depth,eBusName)
+    dec.io.busS(port) <> eb.zBus 
+  }
+}
+class zcpsmMemIn(BW:Int, AWidth:Int,Depth:Int,eBusName:String="Ingress") 
+  extends peripheralExt {
+  def getName = "zcpsmMemIn"
+  def hasEBus = true
+  def applyIt(core : ZcpsmCore, port:Int) = new Area {
+    import core._
+    val eb = peripheralMemIn(BW, AWidth,Depth,eBusName)
+    val eBus = eb.eBusFactory
+    eBus <> eb.eBus
+    eBus.setName(eb.eBusName)
+    dec.io.busS(port) <> eb.zBus 
+  }
+}
+class zcpsmMemRegOut(BW:Int, AWidth:Int,Depth:Int,eBusName:String="Egress") 
+  extends peripheralExt {
+  def getName = "zcpsmMemRegOut"
+  def hasEBus = true
+  def applyIt(core : ZcpsmCore, port:Int) = new Area {
+    import core._
+    val eb = peripheralMemRegOut(BW,AWidth,Depth,eBusName)
+    val eBus = eb.eBusFactory
+    eBus <> eb.eBus
+    eBus.setName(eb.eBusName)
+    dec.io.busS(port) <> eb.zBus 
+  }
+}
+class zcpsmMemOut(BW:Int, AWidth:Int,Depth:Int,eBusName:String="Egress") 
+  extends peripheralExt {
+  def getName = "zcpsmMemOut"
+  def hasEBus = true
+  def applyIt(core : ZcpsmCore, port:Int) = new Area {
+    import core._
+    val eb = peripheralMemOut(BW,AWidth,Depth,eBusName)
+    val eBus = eb.eBusFactory
+    eBus <> eb.eBus
+    eBus.setName(eb.eBusName)
+    dec.io.busS(port) <> eb.zBus 
+  }
+}
+class zcpsmBusExt(AW:Int,DW:Int,AWidth:Int,eBusName:String="DebugIO")
+  extends peripheralExt {
+  def getName = "zcpsmBusExt"
+  def hasEBus = true
+  def applyIt(core : ZcpsmCore, port:Int) = new Area {
+    import core._
+    val eb = peripheralBusExt(AW,DW,AWidth,eBusName)
+    val eBus = eb.eBusFactory
+    eBus <> eb.eBus
+    eBus.setName(eb.eBusName)
+    dec.io.busS(port) <> eb.zBus 
+  }
+}
+case class zcpsmConfig(PWidth:Int,HWidth:Int,psm:String) {
+  val AWidth = 8-HWidth
+  val ext = mutable.Map[Int,peripheralExt]()
+  def addperipheral(p:Int,a:peripheralExt) = ext += (p -> a)
+  def all = {
+    val exts = List(
+      new zcpsmExt(AWidth,"GP0"),
+      new zcpsmExt(AWidth,"GP1"),
+      new zcpsmMemSmall(0,AWidth,64,"ParaMem"),
+      new zcpsmMemBig(8,AWidth,16,"NocMem"),
+      new zcpsmMemIn(0,AWidth, 64, "Ingress"),
+      new zcpsmMemOut(0,AWidth, 64, "Egress0"),
+      new zcpsmMemRegOut(8,AWidth, 16, "Egress1"),
+      new zcpsmBusExt(2,2,AWidth,"DebugIO")
+    )
+    for(i <- 0 until exts.length) addperipheral(i,exts(i))
+  }
+}
+
+case class ZcpsmCore(cfg:zcpsmConfig) extends Component {
   val io = new Bundle {
     val prog = slave(zcpsmIOW(cfg.PWidth,18))
   }
@@ -148,23 +130,11 @@ case class zcpsmISP(cfg:zcpsmISPConfig) extends Component {
                  address = io.prog.port_id.asUInt,
                  enable  = io.prog.write_strobe)
   cpu.io.prog.instruction := progMem(cpu.io.prog.address)
-  val dList = List(0,1,2)
+  val dList = cfg.ext.keys.toList
   val dec = zcpsmDecode(8,cfg.HWidth,dList)
   dec.io.busM <> cpu.io.iobus
   
-  {
-    val eb = zcpsmMemOut(0,cfg.AWidth, 64, "Egress0")
-    val eBus = eb.eBusFactory
-    eBus <> eb.eBus
-    eBus.setName(eb.eBusName)
-    dec.io.busS(1) <> eb.zBus
+  for((p,a) <- cfg.ext) {
+    val eb = a.applyIt(this,p)
   }
-  {
-    val eb = zcpsmExt(cfg.AWidth,"GP0")
-    val eBus = eb.eBusFactory
-    eBus <> eb.eBus
-    dec.io.busS(0) <> eb.zBus
-    eBus.setName(eb.eBusName)
-  }
-  val p1 = cfg.memOut(this)
 }
