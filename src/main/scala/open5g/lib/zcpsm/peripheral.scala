@@ -97,4 +97,71 @@ case class peripheralBusExt(AW:Int,DW:Int,AWidth:Int,eBusName:String="DebugIO")
   eBus.read_strobe  := RegNext(zBus.read(DW-1))
   eBus.ce := RegNext(zBus.hit(DW-1))
 }
-
+case class peripheralStreamMaster(BW:Int,AWidth:Int,eBusName:String="StreamOut")
+  extends Component with peripheral with hasEBus {
+    def eBusFactory = master(Stream(Bits(BW*8 bits)))
+    val eBus = eBusFactory
+    val d = Bits(BW*8 bits)
+    if(BW > 1) {
+      for(i <- 0 until BW-1) {
+        d(i*8+7 downto i*8) := wBus.Q(i)
+      }
+    }
+    d(BW*8-1 downto BW*8-8) := zBus.out_port
+    eBus.payload := d
+    eBus.valid := zBus.written(BW-1) 
+    zBus.in_port(7 downto 1) := B(0,7 bits)
+    zBus.in_port(0) := zBus.read(BW) & eBus.ready
+}
+case class peripheralStreamSlave(BW:Int,AWidth:Int,eBusName:String="StreamIn")
+  extends Component with peripheral with hasEBus {
+    def eBusFactory = slave(Stream(Bits(BW*8 bits)))
+    val eBus = eBusFactory
+    val s = eBus.halfPipe()
+    val d = Reg(Bits(BW*8 bits))
+    val vd = List.fill(BW+1)(Bits(8 bits))
+    for(i <- 0 until BW) {
+      vd(i) := Mux(zBus.read(i),d(i*8+7 downto i*8),B(0,8 bits))
+    } 
+    vd(BW) := B(0,7 bits) ## (zBus.read(BW) & s.valid) 
+    s.ready := zBus.read(BW)
+    when(s.fire) {
+      d := s.payload
+    }
+    zBus.in_port := vd.reduce(_ | _)
+}
+import open5g.lib.axis.axis
+case class peripheralAxisMaster(BW:Int,AWidth:Int,eBusName:String="AxisOut")
+  extends Component with peripheral with hasEBus {
+    def eBusFactory = master(Stream(axis(BW*8)))
+    val eBus = eBusFactory
+    val d = Bits(BW*8 bits)
+    if(BW > 1) {
+      for(i <- 0 until BW-1) {
+        d(i*8+7 downto i*8) := wBus.Q(i)
+      }
+    }
+    d(BW*8-1 downto BW*8-8) := zBus.out_port
+    eBus.payload.data := d
+    eBus.payload.last := zBus.written(BW)
+    eBus.valid := zBus.written(BW-1) | zBus.written(BW)
+    zBus.in_port(7 downto 1) := B(0,7 bits)
+    zBus.in_port(0) := zBus.read(BW) & eBus.ready
+}
+case class peripheralAxisSlave(BW:Int,AWidth:Int,eBusName:String="AxisIn")
+  extends Component with peripheral with hasEBus {
+    def eBusFactory = slave(Stream(axis(BW*8)))
+    val eBus = eBusFactory
+    val s = eBus.halfPipe()
+    val d = Reg(Bits(BW*8 bits))
+    val vd = List.fill(BW+1)(Bits(8 bits))
+    for(i <- 0 until BW) {
+      vd(i) := Mux(zBus.read(i),d(i*8+7 downto i*8),B(0,8 bits))
+    } 
+    vd(BW) := B(0,6 bits) ## Mux(zBus.read(BW),s.payload.last ## s.valid,B"00") 
+    s.ready := zBus.read(BW)
+    when(s.fire) {
+      d := s.payload.data
+    }
+    zBus.in_port := vd.reduce(_ | _)
+}

@@ -95,6 +95,58 @@ class zcpsmBusExt(AW:Int,DW:Int,AWidth:Int,eBusName:String="DebugIO")
     dec.io.busS(port) <> eb.zBus 
   }
 }
+class zcpsmAxisMaster(BW:Int,AWidth:Int,eBusName:String="AxisOut")
+  extends peripheralExt {
+  def getName = "zcpsmAxisMaster"
+  def hasEBus = true
+  def applyIt(core : ZcpsmCore, port:Int) = new Area {
+    import core._
+    val eb = peripheralAxisMaster(BW,AWidth,eBusName)
+    val eBus = eb.eBusFactory
+    eBus <> eb.eBus
+    eBus.setName(eb.eBusName)
+    dec.io.busS(port) <> eb.zBus 
+  }
+}
+class zcpsmAxisSlave(BW:Int,AWidth:Int,eBusName:String="AxisIn")
+  extends peripheralExt {
+  def getName = "zcpsmAxisSlave"
+  def hasEBus = true
+  def applyIt(core : ZcpsmCore, port:Int) = new Area {
+    import core._
+    val eb = peripheralAxisSlave(BW,AWidth,eBusName)
+    val eBus = eb.eBusFactory
+    eBus <> eb.eBus
+    eBus.setName(eb.eBusName)
+    dec.io.busS(port) <> eb.zBus 
+  }
+}
+class zcpsmStreamMaster(BW:Int,AWidth:Int,eBusName:String="StreamOut")
+  extends peripheralExt {
+  def getName = "zcpsmStreamMaster"
+  def hasEBus = true
+  def applyIt(core : ZcpsmCore, port:Int) = new Area {
+    import core._
+    val eb = peripheralStreamMaster(BW,AWidth,eBusName)
+    val eBus = eb.eBusFactory
+    eBus <> eb.eBus
+    eBus.setName(eb.eBusName)
+    dec.io.busS(port) <> eb.zBus 
+  }
+}
+class zcpsmStreamSlave(BW:Int,AWidth:Int,eBusName:String="StreamIn")
+  extends peripheralExt {
+  def getName = "zcpsmStreamSlave"
+  def hasEBus = true
+  def applyIt(core : ZcpsmCore, port:Int) = new Area {
+    import core._
+    val eb = peripheralStreamSlave(BW,AWidth,eBusName)
+    val eBus = eb.eBusFactory
+    eBus <> eb.eBus
+    eBus.setName(eb.eBusName)
+    dec.io.busS(port) <> eb.zBus 
+  }
+}
 case class zcpsmConfig(PWidth:Int,HWidth:Int,psm:String) {
   val AWidth = 8-HWidth
   val ext = mutable.Map[Int,peripheralExt]()
@@ -108,7 +160,11 @@ case class zcpsmConfig(PWidth:Int,HWidth:Int,psm:String) {
       new zcpsmMemIn(0,AWidth, 64, "Ingress"),
       new zcpsmMemOut(0,AWidth, 64, "Egress0"),
       new zcpsmMemRegOut(8,AWidth, 16, "Egress1"),
-      new zcpsmBusExt(2,2,AWidth,"DebugIO")
+      new zcpsmBusExt(2,2,AWidth,"DebugIO"),
+      new zcpsmAxisMaster(1,AWidth,"AxisOut"),
+      new zcpsmAxisSlave(1,AWidth,"AxisIn"),
+      new zcpsmStreamMaster(1,AWidth,"StreamOut"),
+      new zcpsmStreamSlave(1,AWidth,"StreamIn")
     )
     for(i <- 0 until exts.length) addperipheral(i,exts(i))
   }
