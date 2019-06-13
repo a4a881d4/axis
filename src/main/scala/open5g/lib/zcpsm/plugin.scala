@@ -169,7 +169,7 @@ case class zcpsmConfig(PWidth:Int,HWidth:Int,psm:String) {
     for(i <- 0 until exts.length) addperipheral(i,exts(i))
   }
 }
-
+import spinal.core.internals.Misc
 case class ZcpsmCore(cfg:zcpsmConfig) extends Component {
   val io = new Bundle {
     val prog = slave(zcpsmIOW(cfg.PWidth,18))
@@ -190,7 +190,20 @@ case class ZcpsmCore(cfg:zcpsmConfig) extends Component {
   val dec = zcpsmDecode(8,cfg.HWidth,dList)
   dec.io.busM <> cpu.io.iobus
   
-  for((p,a) <- cfg.ext) {
-    val eb = a.applyIt(this,p)
+  val plugs = for((p,a) <- cfg.ext) yield (p -> a.applyIt(this,p))
+  
+  def eBus(port:Int) = {
+    var r:Bundle = null
+    val p = plugs(port)
+    Misc.reflect(p,(n,o) => {
+      o match {
+          case o:Bundle => if(n == "eBus") {
+            r=o
+          }
+          case _ =>
+        }
+      })
+    r
   }
+    
 }
