@@ -2,6 +2,7 @@ package open5g.lib.zcpsm
 
 import spinal.core._
 import spinal.lib._
+import open5g.lib.debug.{Debugable,dbBundle}
 
 case class addc(width:Int) extends Component {
   val io = new Bundle {
@@ -113,11 +114,13 @@ case class zRegFile(AWidth:Int,DWidth:Int) extends Component {
   io.dob := rf(io.addrb)
 }
  
-case class zcpsm(PWidth:Int) extends Component {
+case class zcpsm(PWidth:Int,debug: Boolean = false) extends Component with Debugable {
   val io = new Bundle {
     val prog  = master(zcpsmProg(PWidth))
     val iobus = master(zcpsmIORW(8))
   }
+
+  val dbIn = Bits(db.inAlloc bits)
 
   val rf = zRegFile(5,8)
   val sL = shiftL(8)
@@ -157,21 +160,13 @@ case class zcpsm(PWidth:Int) extends Component {
       ins := B"001100000000000000"
     }.otherwise {
       pc := nextPc
-      jumpSet := True 
-      when(jumpSet) {
-        ins := io.prog.instruction
-      } otherwise {
-        ins := B"001100000000000000"
-      }
+      jumpSet := True
+      ins := Mux(jumpSet,io.prog.instruction,B"001100000000000000") 
     }
   } otherwise {
     pc := nextPc
     jumpSet := True 
-    when(jumpSet) {
-      ins := io.prog.instruction
-    } otherwise {
-      ins := B"001100000000000000"
-    }
+    ins := Mux(jumpSet,io.prog.instruction,B"001100000000000000") 
   }
 
   val read_strobe = (ins( 15 downto 13 ) === B"101")
@@ -240,4 +235,10 @@ case class zcpsm(PWidth:Int) extends Component {
   sR.io.OP := SHIFT_OP(2 downto 0)
 
   io.iobus.ce := True
+  db.iout(ins)
+  db.iout(pc)
+  val instruction = io.prog.instruction
+  db.iout(instruction)
+  val dbPort = db finalDb
+
 }

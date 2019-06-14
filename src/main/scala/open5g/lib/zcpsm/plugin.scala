@@ -2,6 +2,7 @@ package open5g.lib.zcpsm
 import spinal.core._
 import spinal.lib._
 import scala.collection._
+import open5g.lib.debug.{Debugable,dbBundle}
 
 abstract class peripheralExt {
   def getName : String
@@ -170,11 +171,14 @@ case class zcpsmConfig(PWidth:Int,HWidth:Int,psm:String) {
   }
 }
 import spinal.core.internals.Misc
-case class ZcpsmCore(cfg:zcpsmConfig) extends Component {
+case class ZcpsmCore(cfg:zcpsmConfig,
+  debug: Boolean = false) extends Component with Debugable{
   val io = new Bundle {
     val prog = slave(zcpsmIOW(cfg.PWidth,18))
   }
-  val cpu = zcpsm(cfg.PWidth)
+  val dbIn = Bits(db.inAlloc bits)
+
+  val cpu = zcpsm(cfg.PWidth,debug)
   import open5g.lib.zcpsm.tools.asmParser
   val parser = new asmParser
   val (a,_) = parser.fromFile(cfg.psm)
@@ -185,7 +189,7 @@ case class ZcpsmCore(cfg:zcpsmConfig) extends Component {
   progMem.write( data    = io.prog.out_port,
                  address = io.prog.port_id.asUInt,
                  enable  = io.prog.write_strobe)
-  cpu.io.prog.instruction := progMem(cpu.io.prog.address)
+  cpu.io.prog.instruction := progMem.readSync(cpu.io.prog.address)
   val dList = cfg.ext.keys.toList
   val dec = zcpsmDecode(8,cfg.HWidth,dList)
   dec.io.busM <> cpu.io.iobus
@@ -205,5 +209,6 @@ case class ZcpsmCore(cfg:zcpsmConfig) extends Component {
       })
     r
   }
+  val dbPort = db finalDb
     
 }

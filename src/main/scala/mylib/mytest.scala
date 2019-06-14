@@ -122,38 +122,53 @@ object MyISP {
   }
 }
 
+import open5g.lib.debug.{Debugable,dbBundle,DebugUtils}
+
 object ZcpsmSim {
-  class zcpsmForTest extends Component {
+  class zcpsmForTest extends Component with Debugable{
+    val debug = true
     val psm = """
     | LOAD s00,01
     | L1:
-    | OUTPUT s00,00
+    | OUTPUT s00,s00
     | JUMP L1
     """.stripMargin
-    val cfg = zcpsmConfig(10,4,psm)
+    val cfg = zcpsmConfig(4,4,psm)
     // cfg.addperipheral(0,(new zcpsmAxisMaster(1,AWidth,"AxisOut"))
     // cfg.addperipheral(1,(new zcpsmAxisSlave(1,AWidth,"AxisIn"))
     cfg.addperipheral(0,new zcpsmExt(4,"GP0"))
-    val core = ZcpsmCore(cfg)
+    val core = ZcpsmCore(cfg,debug)
     val io = new Bundle {
       val bus = master(zcpsmIORW(4))
     }
+    val dbIn = Bits(db.inAlloc bits)
     io.bus <> core.eBus(0).asInstanceOf[zcpsmIORW]
     core.io.prog.write_strobe := False
     core.io.prog.out_port := B(0,18 bits)
-    core.io.prog.port_id := B(0,10 bits)
+    core.io.prog.port_id := B(0,cfg.PWidth bits)
+    val dbPort = db finalDb
   }
   def main(srgs: Array[String]) {
     SimConfig.withWave.doSim(new zcpsmForTest){ dut => 
       dut.clockDomain.forkStimulus(period = 10)
-
+      val dbitem = dut.db.DebugItem
       var idx = 0
       while(idx < 100){
         dut.io.bus.in_port #= 0
         dut.clockDomain.waitRisingEdge()
 
-        println(dut.io.bus.write_strobe.toBoolean)
-        println(dut.io.bus.out_port.toInt)
+        val cap = DebugUtils.Capture2Signal(dut.dbPort.capture.toBigInt,dbitem)
+        val ins = cap("/core/cpu/ins").intValue
+        val pc = cap("/core/cpu/pc").intValue
+        val instruction = cap("/core/cpu/instruction").intValue
+        println(dut.io.bus.write_strobe.toBoolean,
+            f"${dut.io.bus.out_port.toInt}%02x",
+            f"${dut.io.bus.port_id.toInt}%02x",
+            f"$ins%05x",
+            f"$pc%05x",
+            f"$instruction%05x"
+        )
+        
 
         idx += 1
       }
