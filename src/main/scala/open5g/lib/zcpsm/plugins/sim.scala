@@ -23,7 +23,6 @@ object SimUtils {
       val cap = DebugUtils.Capture2Signal(dut.dbPort.capture.toBigInt,dbitem)
       val ins = cap("/core/cpu/ins").intValue
       val pc = cap("/core/cpu/pc").intValue
-      // val in_port = cap("/core/in_port").intValue
       val instruction = cap("/core/cpu/instruction").intValue
       val asm         = binIns(ins).disAsm
 
@@ -31,7 +30,6 @@ object SimUtils {
         f"$ins%05x",
         f"$pc%05x",
         f"$instruction%05x",
-        // f"$in_port%02X",
         asm.toString
       )
     }
