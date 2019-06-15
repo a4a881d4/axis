@@ -124,11 +124,10 @@ object MyISP {
 
 import open5g.lib.debug.{Debugable,dbBundle,DebugUtils}
 
-object ZcpsmSim {
+object ZcpsmSimSmallRam {
   class zcpsmForTest extends Component with Debugable{
     val debug = false
     val psm = """
-    |;;
     |LOAD   s00, 00
     |LOAD   s01, 10
     |OUTPUT s00, 00
@@ -201,10 +200,87 @@ object ZcpsmSim {
             )
           }
         }
-        
         idx += 1
       }
     }
-    
+  }
+}
+object ZcpsmSimBigRam {
+  class zcpsmForTest extends Component with Debugable{
+    val debug = false
+    val psm = """
+    |LOAD   s00, 00 ;; address
+    |L0:
+    |OUTPUT s00, 11 ;; write address
+    |LOAD   s01, 10 ;; for(i=0x10;i<0x20;i++)
+    |L1:
+    |OUTPUT s01, 10 ;; write i
+    |ADD    s01, 01
+    |LOAD   s02, s01
+    |AND    s02, E0
+    |JUMP   Z, L1
+    |LOAD   s00, 00
+    |LOAD   s01, 00 ;; for(i=0;i<0x10;i++)
+    |OUTPUT s00, 11 ;; write address
+    |L2:
+    |INPUT  s03, 10 ;; read
+    |OUTPUT s03, 00 ;; output
+    |ADD    s01, 01
+    |LOAD   s02, s01
+    |AND    s02, F0
+    |JUMP   Z, L2
+    |JUMP   L0
+    """.stripMargin
+    val cfg = zcpsmConfig(5,4,psm)
+    println(cfg.program)
+    cfg.addperipheral(0,new zcpsmExt(cfg.AWidth,"GP0"))
+    cfg.addperipheral(1,new zcpsmMemSmall(0,cfg.AWidth,64,"ParaMem"))
+    val core = ZcpsmCore(cfg,debug)
+    val io = new Bundle {
+      val bus = master(zcpsmIORW(cfg.AWidth))
+    }
+    val dbIn = Bits(db.inAlloc bits)
+    io.bus <> core.eBus(0).asInstanceOf[zcpsmIORW]
+    core.io.prog.write_strobe := False
+    core.io.prog.out_port := B(0,18 bits)
+    core.io.prog.port_id := B(0,cfg.PWidth bits)
+    val dbPort = db finalDb
+  }
+  def main(srgs: Array[String]) {
+    SimConfig.withWave.doSim(new zcpsmForTest){ dut => 
+      dut.clockDomain.forkStimulus(period = 10)
+      val dbitem = if(dut.debug) dut.db.DebugItem else null
+      var idx = 0
+      while(idx < 256){
+        dut.io.bus.in_port #= 0
+        dut.clockDomain.waitRisingEdge()
+
+        if(dut.debug) {
+          val cap = DebugUtils.Capture2Signal(dut.dbPort.capture.toBigInt,dbitem)
+          val ins = cap("/core/cpu/ins").intValue
+          val pc = cap("/core/cpu/pc").intValue
+          val instruction = cap("/core/cpu/instruction").intValue
+          println(dut.io.bus.write_strobe.toBoolean,
+            f"${dut.io.bus.out_port.toInt}%02x",
+            f"${dut.io.bus.port_id.toInt}%02x",
+            f"$ins%05x",
+            f"$pc%05x",
+            f"$instruction%05x"
+          )
+        } else {
+          val write_strobe = dut.io.bus.write_strobe.toBoolean
+          val out_port     = dut.io.bus.out_port.toInt
+          val port_id      = dut.io.bus.port_id.toInt
+          val ce           = dut.io.bus.ce.toBoolean
+          if(ce && write_strobe) {
+            println(
+              f"${port_id}%02x",
+              f"${out_port}%02x"
+            )
+          }
+        }
+        idx += 1
+      }
+    }
   }
 }
