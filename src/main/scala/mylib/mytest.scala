@@ -2,6 +2,7 @@ package mylib
 
 import open5g.lib.zcpsm.tools._
 import open5g.lib.zcpsm._
+import open5g.lib.zcpsm.plugins._
 import spinal.core._
 import spinal.lib._
 import spinal.sim._
@@ -124,151 +125,10 @@ object MyISP {
 
 import open5g.lib.debug.{Debugable,dbBundle,DebugUtils}
 
-object ZcpsmSimSmallRam {
-  class zcpsmForTest extends Component with Debugable{
-    val debug = false
-    val psm = """
-    |LOAD   s00, 00
-    |LOAD   s01, 10
-    |OUTPUT s00, 00
-    |L0:
-    |LOAD   s01, 10
-    |OUTPUT s00, 11
-    |L1:
-    |OUTPUT s01, 10
-    |ADD    s01, 01
-    |LOAD   s02, s01
-    |AND    s02, E0
-    |JUMP   Z, L1
-    |LOAD   s01, 00
-    |OUTPUT s00, 11
-    |L2:
-    |INPUT  s03, 10
-    |OUTPUT s03, 00
-    |ADD    s01, 01
-    |LOAD   s02, s01
-    |AND    s02, F0
-    |JUMP   Z, L2
-    |JUMP   L0
-    """.stripMargin
-    val cfg = zcpsmConfig(5,4,psm)
-    println(cfg.program)
-    cfg.addperipheral(0,new zcpsmExt(cfg.AWidth,"GP0"))
-    cfg.addperipheral(1,new zcpsmMemSmall(0,cfg.AWidth,64,"ParaMem"))
-    val core = ZcpsmCore(cfg,debug)
-    val io = new Bundle {
-      val bus = master(zcpsmIORW(cfg.AWidth))
-    }
-    val dbIn = Bits(db.inAlloc bits)
-    io.bus <> core.eBus(0).asInstanceOf[zcpsmIORW]
-    core.io.prog.write_strobe := False
-    core.io.prog.out_port := B(0,18 bits)
-    core.io.prog.port_id := B(0,cfg.PWidth bits)
-    val dbPort = db finalDb
-  }
-  def main(srgs: Array[String]) {
-    SimConfig.withWave.doSim(new zcpsmForTest){ dut => 
-      dut.clockDomain.forkStimulus(period = 10)
-      val dbitem = if(dut.debug) dut.db.DebugItem else null
-      var idx = 0
-      while(idx < 256){
-        dut.io.bus.in_port #= 0
-        dut.clockDomain.waitRisingEdge()
-
-        if(dut.debug) {
-          val cap = DebugUtils.Capture2Signal(dut.dbPort.capture.toBigInt,dbitem)
-          val ins = cap("/core/cpu/ins").intValue
-          val pc = cap("/core/cpu/pc").intValue
-          val instruction = cap("/core/cpu/instruction").intValue
-          println(dut.io.bus.write_strobe.toBoolean,
-            f"${dut.io.bus.out_port.toInt}%02x",
-            f"${dut.io.bus.port_id.toInt}%02x",
-            f"$ins%05x",
-            f"$pc%05x",
-            f"$instruction%05x"
-          )
-        } else {
-          val write_strobe = dut.io.bus.write_strobe.toBoolean
-          val out_port     = dut.io.bus.out_port.toInt
-          val port_id      = dut.io.bus.port_id.toInt
-          val ce           = dut.io.bus.ce.toBoolean
-          if(ce && write_strobe) {
-            println(
-              f"${port_id}%02x",
-              f"${out_port}%02x"
-            )
-          }
-        }
-        idx += 1
-      }
-    }
-  }
-}
-
 object ZcpsmSimExtBus {
-  class zcpsmForTest extends Component with Debugable{
-    val debug = false
-    val psm = """
-    |L0:
-    |LOAD   s00, 00
-    |LOAD   s01, 00
-    |L1:
-    |CALL   READ_IO
-    |OUTPUT s02, 00
-    |OUTPUT s03, 01
-    |ADD    s00, 55
-    |ADDCY  s01, 00
-    |LOAD   s04, s01
-    |AND    s04, FE
-    |JUMP   Z, L1
-    |LOAD   s00, 00
-    |LOAD   s01, 00
-    |LOAD   s02, 00
-    |LOAD   s03, 00
-    |L2:
-    |CALL   WRITE_IO
-    |ADD    s02, AA
-    |ADDCY  s03, 01
-    |ADD    s00, 55
-    |ADDCY  s01, 00
-    |LOAD   s04, s01
-    |AND    s04, FE
-    |JUMP   Z, L2
-    |JUMP   L0
-    |;; address(s01,s00) data(s03,s02)
-    |WRITE_IO:      
-    |OUTPUT s00, 12 ;; write address low
-    |OUTPUT s01, 13 ;; write address high
-    |OUTPUT s02, 10 ;; write data low
-    |OUTPUT s03, 11 ;; write data high
-    |RETURN
-    |READ_IO:
-    |OUTPUT s00, 12 ;; write address low
-    |OUTPUT s01, 13 ;; write address high
-    |LOAD   s00, s00;; Nop
-    |INPUT  s02, 10 ;; write data low
-    |INPUT  s03, 11 ;; write data high
-    |RETURN
-    """.stripMargin
-    val cfg = zcpsmConfig(6,4,psm)
-    println(cfg.program)
-    cfg.addperipheral(0,new zcpsmExt(cfg.AWidth,"GP0"))
-    cfg.addperipheral(1,new zcpsmBusExt(2,2,cfg.AWidth,"DebugIO"))
-    val core = ZcpsmCore(cfg,debug)
-    val io = new Bundle {
-      val bus = master(zcpsmIORW(cfg.AWidth))
-      val debugio = master(zcpsmIORW(16,16))
-    }
-    val dbIn = Bits(db.inAlloc bits)
-    io.bus <> core.eBus(0).asInstanceOf[zcpsmIORW]
-    io.debugio <> core.eBus(1).asInstanceOf[zcpsmIORW]
-    core.io.prog.write_strobe := False
-    core.io.prog.out_port := B(0,18 bits)
-    core.io.prog.port_id := B(0,cfg.PWidth bits)
-    val dbPort = db finalDb
-  }
   def main(srgs: Array[String]) {
-    SimConfig.withWave.doSim(new zcpsmForTest){ dut => 
+    val example = ExampleBus.BusExt
+    SimConfig.withWave.doSim(new ExampleBus.zcpsmForTest(example)){ dut => 
       dut.clockDomain.forkStimulus(period = 10)
       val dbitem = if(dut.debug) dut.db.DebugItem else null
       var idx = 0
@@ -277,131 +137,80 @@ object ZcpsmSimExtBus {
         val addr = dut.io.debugio.port_id.toInt
         dut.io.debugio.in_port #= addr/0x55
         dut.clockDomain.waitRisingEdge()
+        SimUtils.debugDump(dut)
+        SimUtils.iowDump("bus",dut.io.bus)
+        SimUtils.iowDump("debug io",dut.io.debugio)
+        idx += 1
+      }
+    }
+  }
+}
 
-        if(dut.debug) {
-          val cap = DebugUtils.Capture2Signal(dut.dbPort.capture.toBigInt,dbitem)
-          val ins = cap("/core/cpu/ins").intValue
-          val pc = cap("/core/cpu/pc").intValue
-          val instruction = cap("/core/cpu/instruction").intValue
-          println(dut.io.bus.write_strobe.toBoolean,
-            f"${dut.io.bus.out_port.toInt}%02x",
-            f"${dut.io.bus.port_id.toInt}%02x",
-            f"$ins%05x",
-            f"$pc%05x",
-            f"$instruction%05x"
-          )
-        } else {
-          {       
-            val write_strobe = dut.io.bus.write_strobe.toBoolean
-            val out_port     = dut.io.bus.out_port.toInt
-            val port_id      = dut.io.bus.port_id.toInt
-            val ce           = dut.io.bus.ce.toBoolean
-            if(ce && write_strobe) {
-                println("bus out",
-                f"${port_id}%02x",
-                f"${out_port}%02x"
-              )
-            }
-          }
-          {
-            val write_strobe = dut.io.debugio.write_strobe.toBoolean
-            val out_port     = dut.io.debugio.out_port.toInt
-            val port_id      = dut.io.debugio.port_id.toInt
-            val ce           = dut.io.debugio.ce.toBoolean
-            if(ce && write_strobe) {
-              println("debugio out",
-                f"${port_id}%04x",
-                f"${out_port}%04x"
-              )
-            }
-          }
-          
+object ZcpsmExampleRam {
+  def main(args: Array[String]) {
+    val example = if(args(0) == "small") ExampleMem.MemSmall else ExampleMem.MemBig
+    SimConfig.withWave.doSim(new ExampleMem.zcpsmInternal(example)){ dut => 
+      dut.clockDomain.forkStimulus(period = 10)
+      val dbitem = if(dut.debug) dut.db.DebugItem else null
+      var idx = 0
+      while(idx < 256){
+        dut.io.bus.in_port #= 0
+        dut.clockDomain.waitRisingEdge()
+
+        SimUtils.debugDump(dut)
+        SimUtils.iowDump("bus",dut.io.bus)
+        idx += 1
+      }
+    }
+  }
+}
+object ZcpsmExampleStreamOut {
+  def main(args: Array[String]) {
+    val example = ExampleStream.StreamOut
+    SimConfig.withWave.doSim(new ExampleStream.zcpsmStreamOut(example,false)){ dut => 
+      dut.clockDomain.forkStimulus(period = 10)
+      val dbitem = if(dut.debug) dut.db.DebugItem else null
+      var idx = 0
+      var cnt = 0
+      while(idx < 512){
+        dut.io.bus.in_port #= cnt
+        if(dut.io.bus.read_strobe.toBoolean && dut.io.bus.ce.toBoolean) {
+          cnt += 1
+        }
+        val ready = (idx&0x3) == 0
+        dut.io.sout.ready #= ready
+        dut.clockDomain.waitRisingEdge()
+
+        SimUtils.debugDump(dut)
+        SimUtils.iowDump("bus",dut.io.bus)
+        if(dut.io.sout.valid.toBoolean && ready) {
+          println(f"sout: ${dut.io.sout.payload.toInt}%02X")
         }
         idx += 1
       }
     }
   }
 }
-object ZcpsmSimBigRam {
-  class zcpsmForTest extends Component with Debugable{
-    val debug = false
-    val psm = """
-    |L0:
-    |CALL   WRITE_RAM
-    |CALL   READ_RAM
-    |JUMP   L0
-    |WRITE_RAM:    
-    |LOAD   s00, 00 ;; address
-    |OUTPUT s00, 11 ;; write address
-    |LOAD   s01, 10 ;; for(i=0x10;i<0x20;i++)
-    |WRITE_RAM_L1:
-    |OUTPUT s01, 10 ;; write i
-    |ADD    s01, 01
-    |LOAD   s02, s01
-    |AND    s02, E0
-    |JUMP   Z, WRITE_RAM_L1
-    |RETURN
-    |READ_RAM:
-    |LOAD   s00, 00
-    |LOAD   s01, 00 ;; for(i=0;i<0x10;i++)
-    |OUTPUT s00, 11 ;; write address
-    |LOAD   s00, s00;; insert Nop
-    |READ_RAM_L2:
-    |INPUT  s03, 10 ;; read
-    |OUTPUT s03, 00 ;; output
-    |ADD    s01, 01
-    |LOAD   s02, s01
-    |AND    s02, F0
-    |JUMP   Z, READ_RAM_L2
-    |RETURN
-    """.stripMargin
-    val cfg = zcpsmConfig(5,4,psm)
-    println(cfg.program)
-    cfg.addperipheral(0,new zcpsmExt(cfg.AWidth,"GP0"))
-    cfg.addperipheral(1,new zcpsmMemBig(0,cfg.AWidth,64,"ParaMem"))
-    val core = ZcpsmCore(cfg,debug)
-    val io = new Bundle {
-      val bus = master(zcpsmIORW(cfg.AWidth))
-    }
-    val dbIn = Bits(db.inAlloc bits)
-    io.bus <> core.eBus(0).asInstanceOf[zcpsmIORW]
-    core.io.prog.write_strobe := False
-    core.io.prog.out_port := B(0,18 bits)
-    core.io.prog.port_id := B(0,cfg.PWidth bits)
-    val dbPort = db finalDb
-  }
-  def main(srgs: Array[String]) {
-    SimConfig.withWave.doSim(new zcpsmForTest){ dut => 
+object ZcpsmExampleStreamIn {
+  def main(args: Array[String]) {
+    val example = ExampleStream.StreamIn
+    SimConfig.withWave.doSim(new ExampleStream.zcpsmStreamIn(example,false)){ dut => 
       dut.clockDomain.forkStimulus(period = 10)
       val dbitem = if(dut.debug) dut.db.DebugItem else null
       var idx = 0
+      var cnt = 0
       while(idx < 512){
         dut.io.bus.in_port #= 0
+        dut.io.sin.payload #= cnt
+        val valid = (idx&0xf) == 0
+        dut.io.sin.valid #= valid
         dut.clockDomain.waitRisingEdge()
 
-        if(dut.debug) {
-          val cap = DebugUtils.Capture2Signal(dut.dbPort.capture.toBigInt,dbitem)
-          val ins = cap("/core/cpu/ins").intValue
-          val pc = cap("/core/cpu/pc").intValue
-          val instruction = cap("/core/cpu/instruction").intValue
-          println(dut.io.bus.write_strobe.toBoolean,
-            f"${dut.io.bus.out_port.toInt}%02x",
-            f"${dut.io.bus.port_id.toInt}%02x",
-            f"$ins%05x",
-            f"$pc%05x",
-            f"$instruction%05x"
-          )
-        } else {
-          val write_strobe = dut.io.bus.write_strobe.toBoolean
-          val out_port     = dut.io.bus.out_port.toInt
-          val port_id      = dut.io.bus.port_id.toInt
-          val ce           = dut.io.bus.ce.toBoolean
-          if(ce && write_strobe) {
-            println(
-              f"${port_id}%02x",
-              f"${out_port}%02x"
-            )
-          }
+        SimUtils.debugDump(dut)
+        SimUtils.iowDump("bus",dut.io.bus)
+        if(dut.io.sin.ready.toBoolean && valid) {
+          cnt += 1
+          println(f"sin: $cnt%02X")
         }
         idx += 1
       }
