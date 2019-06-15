@@ -6,7 +6,7 @@ import open5g.lib.zcpsm._
 
 trait zcpsmMem extends peripheral {
   val Depth:Int
-  val width = log2Up(Depth)
+  def width = log2Up(Depth)
   val addr  = RegInit(U(0,width bits))
   when(zBus.read(0) || zBus.written(0)) {
     addr := addr + 1
@@ -16,9 +16,11 @@ trait zcpsmMem extends peripheral {
     }
   }
   def ramA : UInt
+}
+trait Mem8 {
+  def ramA : UInt
   val pM = Mem(Bits(8 bits),1 << ramA.getWidth)
 }
-
 trait zcpsmMemBlocked extends zcpsmMem {
   val BW:Int
   def ramA = if(BW>0) {
@@ -27,7 +29,7 @@ trait zcpsmMemBlocked extends zcpsmMem {
   } else addr
 }
 
-trait zcpsmMemWrite extends zcpsmMem {
+trait zcpsmMemWrite extends zcpsmMem with Mem8 {
   pM.write( address = ramA,
             data    = zBus.out_port,
             enable  = zBus.written(0))
@@ -42,13 +44,26 @@ case class peripheralMemBig(BW:Int, AWidth:Int, Depth:Int, eBusName:String="NocC
   zBus.in_port := pM.readSync(ramA)
 }
 case class peripheralMemIn(BW:Int, AWidth:Int, Depth:Int, eBusName:String="Ingress")
-  extends Component with zcpsmMemBlocked {
+  extends Component with zcpsmMemBlocked  with hasEBus with Mem8 {
     def eBusFactory = slave(zcpsmIOW(width+BW,8))
     val eBus = eBusFactory
     zBus.in_port := pM.readSync(ramA)
     pM.write(address = eBus.port_id.asUInt,
              data    = eBus.out_port,
              enable  = eBus.write_strobe) 
+}
+case class peripheralMixIn(BW:Int, MW:Int, AWidth:Int, Depth:Int, eBusName:String="Ingress")
+  extends Component with zcpsmMemBlocked with hasEBus {
+    val MWidth = 1<<MW
+    def eBusFactory = slave(zcpsmIOW(width+BW-MW,8*MWidth))
+    val eBus = eBusFactory
+    val pMem =Mem(Vec(Bits(8 bits),MWidth), Depth/MWidth)
+    val read = pMem.readSync(ramA(width+BW-1 downto MW))
+    pMem.write(
+            address = eBus.port_id.asUInt,
+            data    = eBus.out_port.subdivideIn(8 bits),
+            enable  = eBus.write_strobe)  
+    zBus.in_port := read(ramA(MW-1 downto 0))
 }
 case class peripheralMemRegOut(BW:Int, AWidth:Int, Depth:Int, eBusName:String="Egress")
   extends Component with zcpsmMemBlocked with zcpsmMemWrite with hasEBus {
@@ -93,6 +108,20 @@ class zcpsmMemIn(BW:Int, AWidth:Int,Depth:Int,eBusName:String="Ingress")
   def applyIt(core : ZcpsmCore, decport:Int) = new Area {
     import core._
     val eb = peripheralMemIn(BW, AWidth,Depth,eBusName)
+    val eBus = eb.eBusFactory
+    eBus <> eb.eBus
+    eBus.setName(eb.eBusName)
+    dec.io.busS(decport) <> eb.zBus 
+    port = dList(decport) 
+  }
+}
+class zcpsmMixIn(BW:Int, MW:Int, AWidth:Int,Depth:Int,eBusName:String="Ingress") 
+  extends peripheralExt {
+  def getName = "zcpsmMixIn"
+  def hasEBus = true
+  def applyIt(core : ZcpsmCore, decport:Int) = new Area {
+    import core._
+    val eb = peripheralMixIn(BW, MW, AWidth, Depth, eBusName)
     val eBus = eb.eBusFactory
     eBus <> eb.eBus
     eBus.setName(eb.eBusName)
@@ -230,6 +259,38 @@ object ExampleMem {
     val io = new Bundle {
       val bus = master(zcpsmIORW(example.config.AWidth))
       val w   = slave(zcpsmIOW(6,8))
+    }
+    io.bus <> core.eBus(0).asInstanceOf[zcpsmIORW]
+    io.w   <> core.eBus(1).asInstanceOf[zcpsmIOW]
+  }
+  object MixIn extends PluginsExample {
+    val code = """
+      |L0:
+      |CALL   READ_RAM
+      |JUMP   L0
+      |READ_RAM:
+      |LOAD   s00, 00
+      |LOAD   s01, 00 ;; for(i=0;i<0x40;i++)
+      |OUTPUT s00, 11 ;; write address
+      |LOAD   s00, s00;; insert Nop
+      |READ_RAM_L2:
+      |INPUT  s03, 10 ;; read
+      |OUTPUT s03, 00 ;; output
+      |ADD    s01, 01
+      |LOAD   s02, s01
+      |AND    s02, C0
+      |JUMP   Z, READ_RAM_L2
+      |RETURN
+      """.stripMargin
+    val config = zcpsmConfig(5,4,code)
+    config.addperipheral(0,new zcpsmExt(config.AWidth,"GP0"))
+    config.addperipheral(1,new zcpsmMixIn(0,3,config.AWidth,64,"ParaMem"))
+  }
+  class zcpsmMixWidthIn(example:PluginsExample,val debug:Boolean = false) 
+    extends zcpsmExample(example) {
+    val io = new Bundle {
+      val bus = master(zcpsmIORW(example.config.AWidth))
+      val w   = slave(zcpsmIOW(3,64))
     }
     io.bus <> core.eBus(0).asInstanceOf[zcpsmIORW]
     io.w   <> core.eBus(1).asInstanceOf[zcpsmIOW]

@@ -122,6 +122,11 @@ object MyISP {
     SpinalVerilog(new ZcpsmCore(cfg))
   }
 }
+object MyMix {
+  def main(srgs: Array[String]) {
+    SpinalVerilog(new peripheralMixIn(0,0,4,64))
+  }
+}
 
 import open5g.lib.debug.{Debugable,dbBundle,DebugUtils}
 
@@ -272,6 +277,30 @@ object ZcpsmExampleRamIn {
         val write_strobe = idx<64
         val out_port     = idx & 0xff
         val port_id      = idx & 0x3f
+        dut.io.w.write_strobe #= write_strobe
+        dut.io.w.out_port     #= out_port
+        dut.io.w.port_id      #= port_id
+        
+        dut.clockDomain.waitRisingEdge()
+
+        SimUtils.debugDump(dut)
+        SimUtils.iowDump("bus",dut.io.bus)
+        idx += 1
+      }
+    }
+  }
+}
+object ZcpsmExampleMixIn {
+  def main(args: Array[String]) {
+    val example = ExampleMem.MixIn
+    SimConfig.withWave.doSim(new ExampleMem.zcpsmMixWidthIn(example,false)){ dut => 
+      dut.clockDomain.forkStimulus(period = 10)
+      var idx = 0
+      while(idx < 4096){
+        dut.io.bus.in_port #= 0
+        val write_strobe = idx < 8
+        val out_port     = if(idx<8) BigInt(idx) * BigInt("123456789abcdef",16) else BigInt(0)
+        val port_id      = idx & 0x7
         dut.io.w.write_strobe #= write_strobe
         dut.io.w.out_port     #= out_port
         dut.io.w.port_id      #= port_id
