@@ -124,7 +124,7 @@ object MyISP {
 }
 object MyMix {
   def main(srgs: Array[String]) {
-    SpinalVerilog(new peripheralMixIn(0,0,4,64))
+    SpinalVerilog(new peripheralMixOut(0,3,4,64))
   }
 }
 
@@ -337,6 +337,34 @@ object ZcpsmExampleRamOut {
         SimUtils.debugDump(dut)
         SimUtils.iowDump("bus",dut.io.bus)
         println("read ",f"$idx%02X",f"${dut.io.r.in_port.toInt}%02X")
+        idx += 1
+      }
+    }
+  }
+}
+object ZcpsmExampleMixOut {
+  def main(args: Array[String]) {
+    val example = ExampleMem.MixOut
+    if(args(0) == "small") {
+      example.config.addperipheral(1,new zcpsmMixOut(0,3,example.config.AWidth, 64, "Egress"))
+    } else {
+      example.config.addperipheral(1,new zcpsmMixRegOut(0,3,example.config.AWidth, 64, "Egress"))
+    } 
+    SimConfig.withWave.doSim(new ExampleMem.zcpsmMixWidthOut(example,false)){ dut => 
+      dut.clockDomain.forkStimulus(period = 10)
+      var idx = 0
+      while(idx < 1024){
+        dut.io.bus.in_port #= 0
+        val read_strobe  = true
+        val port_id      = idx & 0x7
+        dut.io.r.read_strobe  #= read_strobe
+        dut.io.r.port_id      #= port_id
+        dut.io.r.ce           #= true
+        dut.clockDomain.waitRisingEdge()
+
+        SimUtils.debugDump(dut)
+        SimUtils.iowDump("bus",dut.io.bus)
+        println("read ",f"$idx%02X",f"${dut.io.r.in_port.toBigInt}%X")
         idx += 1
       }
     }
