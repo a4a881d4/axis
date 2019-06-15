@@ -264,7 +264,7 @@ object ZcpsmExampleAxis {
 object ZcpsmExampleRamIn {
   def main(args: Array[String]) {
     val example = ExampleMem.MemIn
-    SimConfig.withWave.doSim(new ExampleMem.zcpsmIn(example,true)){ dut => 
+    SimConfig.withWave.doSim(new ExampleMem.zcpsmIn(example,false)){ dut => 
       dut.clockDomain.forkStimulus(period = 10)
       var idx = 0
       while(idx < 256){
@@ -280,6 +280,34 @@ object ZcpsmExampleRamIn {
 
         SimUtils.debugDump(dut)
         SimUtils.iowDump("bus",dut.io.bus)
+        idx += 1
+      }
+    }
+  }
+}
+object ZcpsmExampleRamOut {
+  def main(args: Array[String]) {
+    val example = ExampleMem.MemOut
+    if(args(0) == "small") {
+      example.config.addperipheral(1,new zcpsmMemOut(0,example.config.AWidth, 64, "Egress"))
+    } else {
+      example.config.addperipheral(1,new zcpsmMemRegOut(0,example.config.AWidth, 64, "Egress"))
+    } 
+    SimConfig.withWave.doSim(new ExampleMem.zcpsmOut(example,false)){ dut => 
+      dut.clockDomain.forkStimulus(period = 10)
+      var idx = 0
+      while(idx < 256){
+        dut.io.bus.in_port #= 0
+        val read_strobe  = true
+        val port_id      = idx & 0x3f
+        dut.io.r.read_strobe  #= read_strobe
+        dut.io.r.port_id      #= port_id
+        
+        dut.clockDomain.waitRisingEdge()
+
+        SimUtils.debugDump(dut)
+        SimUtils.iowDump("bus",dut.io.bus)
+        println("read ",f"$idx%02X",f"${dut.io.r.in_port.toInt}%02X")
         idx += 1
       }
     }

@@ -234,6 +234,35 @@ object ExampleMem {
     io.bus <> core.eBus(0).asInstanceOf[zcpsmIORW]
     io.w   <> core.eBus(1).asInstanceOf[zcpsmIOW]
   }
+  object MemOut extends PluginsExample {
+    val code = """
+      |L0:
+      |CALL   WRITE_RAM
+      |JUMP   L0
+      |WRITE_RAM:    
+      |LOAD   s00, 00 ;; address
+      |OUTPUT s00, 11 ;; write address
+      |LOAD   s01, 10 ;; for(i=0x10;i<0x20;i++)
+      |WRITE_RAM_L1:
+      |OUTPUT s01, 10 ;; write i
+      |ADD    s01, 01
+      |LOAD   s02, s01
+      |AND    s02, E0
+      |JUMP   Z, WRITE_RAM_L1
+      |RETURN
+      """.stripMargin
+    val config = zcpsmConfig(5,4,code)
+    config.addperipheral(0,new zcpsmExt(config.AWidth,"GP0"))
+  }
+  class zcpsmOut(example:PluginsExample,val debug:Boolean = false) 
+    extends zcpsmExample(example) {
+    val io = new Bundle {
+      val bus = master(zcpsmIORW(example.config.AWidth))
+      val r   = slave(zcpsmIOR(6,8))
+    }
+    io.bus <> core.eBus(0).asInstanceOf[zcpsmIORW]
+    io.r   <> core.eBus(1).asInstanceOf[zcpsmIOR]
+  }
 } 
   
   
