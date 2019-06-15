@@ -232,7 +232,7 @@ class asmParser extends RegexParsers {
   def Reg : Parser[reg] = """s[0-1][0-9a-fA-F]""".r ^^ {x => reg(Integer.parseInt(x.drop(1),16)) }
   def Imm : Parser[imm] = numericLit ^^ { x => imm(Integer.parseInt(x.toString,16)) }
   def Opd : Parser[opd] = (Reg|Imm)
-  def TwoArg : Parser[asm] = ("LOAD"|"AND"|"OR"|"XOR"|"ADD"|"ADDCY"|"SUB"|"SUBCY"|"INPUT"|"OUTPUT") ~ Reg ~ "," ~ Opd ^^ {
+  def TwoArg : Parser[asm] = ("LOAD"|"AND"|"OR"|"XOR"|"ADDCY"|"SUBCY"|"ADD"|"SUB"|"INPUT"|"OUTPUT") ~ Reg ~ "," ~ Opd ^^ {
     case o~r~c~d => o match {
       case "LOAD"   =>   load(r,d)
       case "AND"    =>    and(r,d)

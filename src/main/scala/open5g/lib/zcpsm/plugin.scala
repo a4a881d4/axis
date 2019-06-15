@@ -201,7 +201,7 @@ case class ZcpsmCore(cfg:zcpsmConfig,
                  address = io.prog.port_id.asUInt,
                  enable  = io.prog.write_strobe)
   cpu.io.prog.instruction := progMem.readSync(cpu.io.prog.address)
-  val dList = cfg.ext.keys.toList
+  val dList = cfg.ext.keys.toList.sorted
   val dec = zcpsmDecode(8,cfg.HWidth,dList)
   dec.io.busM <> cpu.io.iobus
   val portMap = dList.zipWithIndex.toMap
