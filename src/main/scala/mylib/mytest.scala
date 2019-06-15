@@ -217,3 +217,47 @@ object ZcpsmExampleStreamIn {
     }
   }
 }
+object ZcpsmExampleAxis {
+  def main(args: Array[String]) {
+    val example = ExampleStream.Axis
+    SimConfig.withWave.doSim(new ExampleStream.zcpsmAxis(example,false)){ dut => 
+      dut.clockDomain.forkStimulus(period = 10)
+      var idx = 0
+      val message = "Hello World I am Looking for Bug".split(" ").toList.map(x => x.map(_.toInt))
+      var wordCnt = 0
+      var charCnt = 0
+      var outMessage = ""
+      while(idx < 1024){
+        dut.io.bus.in_port #= 0
+        val aChar = message(wordCnt)(charCnt)
+        dut.io.ain.payload.data #= aChar
+        val last = charCnt == message(wordCnt).length-1
+        dut.io.ain.payload.last #= last
+        dut.io.aout.ready #= true
+        val valid = (idx&0xf) == 0
+        dut.io.ain.valid #= valid
+        dut.clockDomain.waitRisingEdge()
+
+        SimUtils.debugDump(dut)
+        SimUtils.iowDump("bus",dut.io.bus)
+        if(dut.io.ain.ready.toBoolean && valid) {
+          if(last) {
+            if(wordCnt == message.length-1) wordCnt=0 else wordCnt += 1
+            charCnt = 0
+          } else {
+            charCnt += 1
+          }
+          println("ain: ",aChar.toChar)
+        }
+        idx += 1
+        if(dut.io.aout.valid.toBoolean) {
+          outMessage += dut.io.aout.payload.data.toInt.toChar
+          if(dut.io.aout.payload.last.toBoolean) {
+            println(outMessage)
+            outMessage = ""
+          }
+        }
+      }
+    }
+  }
+}

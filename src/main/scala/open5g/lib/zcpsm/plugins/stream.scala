@@ -189,4 +189,57 @@ object ExampleStream {
     io.bus <> core.eBus(0).asInstanceOf[zcpsmIORW]
     io.sin >> core.eBus(1).asInstanceOf[Stream[Bits]]
   }
+  object Axis extends PluginsExample {
+    val code = """
+      |LOAD   s0F, 00
+      |L0:
+      |CALL   READ_IO
+      |LOAD   s0E, s01
+      |CALL   WRITE_IO
+      |OUTPUT s0F, 00
+      |JUMP   L0
+      |;; data in s00 ;; last and valid in s01 ;; s0E temp reg
+      |READ_IO:      
+      |Wait_valid:
+      |INPUT  s01, 11
+      |LOAD   s0E, s01
+      |AND    s0E, 01
+      |JUMP   Z, Wait_valid
+      |INPUT  s00, 10
+      |RETURN
+      |;; data in s00 ;; s03/s0E temp reg
+      |WRITE_IO:      
+      |Wait_ready:
+      |INPUT  s03, 21
+      |AND    s03, 01
+      |JUMP   Z, Wait_ready
+      |LOAD   s0E, s01
+      |AND    s0E, 02
+      |JUMP   NZ, LLast
+      |OUTPUT s00, 20
+      |JUMP   LWrite_exit
+      |LLast:
+      |OUTPUT s00, 21
+      |ADD    s0F, 01
+      |LWrite_exit:
+      |RETURN
+      """.stripMargin
+    val config = zcpsmConfig(6,4,code)
+    config.addperipheral(0,new zcpsmExt(config.AWidth,"GP0"))
+    config.addperipheral(1,new zcpsmAxisSlave(1,config.AWidth,"AxisIn"))
+    config.addperipheral(2,new zcpsmAxisMaster(1,config.AWidth,"AxisOut"))
+  }
+  class zcpsmAxis(example:PluginsExample,val debug:Boolean = false) 
+    extends zcpsmExample(example) {
+    val io = new Bundle {
+      val bus  = master(zcpsmIORW(example.config.AWidth))
+      val ain  = slave(Stream(axis(8)))
+      val aout = master(Stream(axis(8)))
+    }
+    io.bus  <> core.eBus(0).asInstanceOf[zcpsmIORW]
+    io.ain  >> core.eBus(1).asInstanceOf[Stream[axis]]
+    val buffer = StreamFifo(axis(8),2)
+    buffer.io.pop  >> io.aout
+    buffer.io.push << core.eBus(2).asInstanceOf[Stream[axis]]
+  }
 }
