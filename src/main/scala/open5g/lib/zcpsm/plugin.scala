@@ -169,6 +169,12 @@ case class zcpsmConfig(PWidth:Int,HWidth:Int,psm:String) {
     )
     for(i <- 0 until exts.length) addperipheral(i,exts(i))
   }
+  import open5g.lib.zcpsm.tools.asmParser
+  val parser = new asmParser
+  val (program,labeled) = parser.fromFile(psm)
+  def initProg = for(i <- 0 until (1<<PWidth)) yield {
+    if(i < program.length) B(BigInt(program(i).toHex),18 bits) else B(0,18 bits)
+  }
 }
 import spinal.core.internals.Misc
 case class ZcpsmCore(cfg:zcpsmConfig,
@@ -179,13 +185,7 @@ case class ZcpsmCore(cfg:zcpsmConfig,
   val dbIn = Bits(db.inAlloc bits)
 
   val cpu = zcpsm(cfg.PWidth,debug)
-  import open5g.lib.zcpsm.tools.asmParser
-  val parser = new asmParser
-  val (a,_) = parser.fromFile(cfg.psm)
-  def initProg = for(i <- 0 until (1<<cfg.PWidth)) yield {
-    if(i < a.length) B(BigInt(a(i).toHex),18 bits) else B(0,18 bits)
-  }
-  val progMem = Mem(Bits(18 bits),initialContent = initProg)
+  val progMem = Mem(Bits(18 bits),initialContent = cfg.initProg)
   progMem.write( data    = io.prog.out_port,
                  address = io.prog.port_id.asUInt,
                  enable  = io.prog.write_strobe)

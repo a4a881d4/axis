@@ -291,7 +291,7 @@ class asmParser extends RegexParsers {
           }
         }
       }
-      case _ => 
+      case failure: NoSuccess => println(failure.msg,failure.next.rest.source.toString)
     }
     (PSM.program.toList,PSM.labeled)
   }

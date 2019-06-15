@@ -128,18 +128,38 @@ object ZcpsmSim {
   class zcpsmForTest extends Component with Debugable{
     val debug = false
     val psm = """
-    | LOAD s00,01
-    | L1:
-    | OUTPUT s00,00
-    | JUMP L1
+    |;;
+    |LOAD   s00, 00
+    |LOAD   s01, 10
+    |OUTPUT s00, 00
+    |L0:
+    |LOAD   s01, 10
+    |OUTPUT s00, 11
+    |L1:
+    |OUTPUT s01, 10
+    |ADD    s00, 01
+    |ADD    s01, 01
+    |LOAD   s02, s01
+    |AND    s02, E0
+    |JUMP   Z, L1
+    |LOAD   s01, 00
+    |OUTPUT s00, 10
+    |L2:
+    |INPUT  s03, 10
+    |OUTPUT s03, 00
+    |ADD    s01, 01
+    |LOAD   s02, s01
+    |AND    s02, F0
+    |JUMP   Z, L2
+    |JUMP   L0
     """.stripMargin
-    val cfg = zcpsmConfig(4,4,psm)
-    // cfg.addperipheral(0,(new zcpsmAxisMaster(1,AWidth,"AxisOut"))
-    // cfg.addperipheral(1,(new zcpsmAxisSlave(1,AWidth,"AxisIn"))
-    cfg.addperipheral(0,new zcpsmExt(4,"GP0"))
+    val cfg = zcpsmConfig(5,4,psm)
+    println(cfg.program)
+    cfg.addperipheral(0,new zcpsmExt(cfg.AWidth,"GP0"))
+    cfg.addperipheral(1,new zcpsmMemSmall(0,cfg.AWidth,64,"ParaMem"))
     val core = ZcpsmCore(cfg,debug)
     val io = new Bundle {
-      val bus = master(zcpsmIORW(4))
+      val bus = master(zcpsmIORW(cfg.AWidth))
     }
     val dbIn = Bits(db.inAlloc bits)
     io.bus <> core.eBus(0).asInstanceOf[zcpsmIORW]
@@ -153,7 +173,7 @@ object ZcpsmSim {
       dut.clockDomain.forkStimulus(period = 10)
       val dbitem = if(dut.debug) dut.db.DebugItem else null
       var idx = 0
-      while(idx < 100){
+      while(idx < 128){
         dut.io.bus.in_port #= 0
         dut.clockDomain.waitRisingEdge()
 
@@ -170,10 +190,16 @@ object ZcpsmSim {
             f"$instruction%05x"
           )
         } else {
-          println(dut.io.bus.write_strobe.toBoolean,
-            f"${dut.io.bus.out_port.toInt}%02x",
-            f"${dut.io.bus.port_id.toInt}%02x"
-          )
+          val write_strobe = dut.io.bus.write_strobe.toBoolean
+          val out_port     = dut.io.bus.out_port.toInt
+          val port_id      = dut.io.bus.port_id.toInt
+          val ce           = dut.io.bus.ce.toBoolean
+          if(ce && write_strobe) {
+            println(
+              f"${port_id}%02x",
+              f"${out_port}%02x"
+            )
+          }
         }
         
         idx += 1
