@@ -202,6 +202,38 @@ object ExampleMem {
     }
     io.bus <> core.eBus(0).asInstanceOf[zcpsmIORW]
   }
+  object MemIn extends PluginsExample {
+    val code = """
+      |L0:
+      |CALL   READ_RAM
+      |JUMP   L0
+      |READ_RAM:
+      |LOAD   s00, 00
+      |LOAD   s01, 00 ;; for(i=0;i<0x10;i++)
+      |OUTPUT s00, 11 ;; write address
+      |LOAD   s00, s00;; insert Nop
+      |READ_RAM_L2:
+      |INPUT  s03, 10 ;; read
+      |OUTPUT s03, 00 ;; output
+      |ADD    s01, 01
+      |LOAD   s02, s01
+      |AND    s02, F0
+      |JUMP   Z, READ_RAM_L2
+      |RETURN
+      """.stripMargin
+    val config = zcpsmConfig(5,4,code)
+    config.addperipheral(0,new zcpsmExt(config.AWidth,"GP0"))
+    config.addperipheral(1,new zcpsmMemIn(0,config.AWidth,64,"ParaMem"))
+  }
+  class zcpsmIn(example:PluginsExample,val debug:Boolean = false) 
+    extends zcpsmExample(example) {
+    val io = new Bundle {
+      val bus = master(zcpsmIORW(example.config.AWidth))
+      val w   = slave(zcpsmIOW(6,8))
+    }
+    io.bus <> core.eBus(0).asInstanceOf[zcpsmIORW]
+    io.w   <> core.eBus(1).asInstanceOf[zcpsmIOW]
+  }
 } 
   
   

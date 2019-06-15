@@ -261,3 +261,27 @@ object ZcpsmExampleAxis {
     }
   }
 }
+object ZcpsmExampleRamIn {
+  def main(args: Array[String]) {
+    val example = ExampleMem.MemIn
+    SimConfig.withWave.doSim(new ExampleMem.zcpsmIn(example,true)){ dut => 
+      dut.clockDomain.forkStimulus(period = 10)
+      var idx = 0
+      while(idx < 256){
+        dut.io.bus.in_port #= 0
+        val write_strobe = idx<64
+        val out_port     = idx & 0xff
+        val port_id      = idx & 0x3f
+        dut.io.w.write_strobe #= write_strobe
+        dut.io.w.out_port     #= out_port
+        dut.io.w.port_id      #= port_id
+        
+        dut.clockDomain.waitRisingEdge()
+
+        SimUtils.debugDump(dut)
+        SimUtils.iowDump("bus",dut.io.bus)
+        idx += 1
+      }
+    }
+  }
+}
