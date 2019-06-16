@@ -5,7 +5,7 @@ import spinal.lib._
 import open5g.lib.zcpsm._
 
 object Match {
-  case class eBus(val da:Int,val dd:Int, val AWidth:Int) extends Bundle with IMasterSlave {
+  class meBus(val da:Int,val dd:Int, val AWidth:Int) extends Bundle with IMasterSlave {
     val data = zcpsmIOW(da,dd)
     val mdata = zcpsmIOW(AWidth)
     def asMaster = {
@@ -26,9 +26,9 @@ case class peripheralMatch( matchGroup:Int,
     val mAWD = log2Up(matchDepth)
     val mAWG = log2Up(matchGroup)
     val mAW = mAWD + mAWG + 1
-    def eBusFactory = slave(Match.eBus(width+BW-MW,8*mixWidth,AWidth))
+    def eBusFactory = slave(new Match.meBus(width+BW-MW,8*mixWidth,AWidth))
     val eBus = eBusFactory
-    val pMem =Mem(Vec(Bits(8 bits),mixWidth), Depth/mixWidth)
+    val pMem = Mem(Vec(Bits(8 bits),mixWidth), (Depth/mixWidth)*(1<<BW))
     val read = pMem.readSync(ramA(width+BW-1 downto MW))
     pMem.write(
             address = eBus.data.port_id.asUInt,
@@ -38,6 +38,7 @@ case class peripheralMatch( matchGroup:Int,
     val mMem = List.fill(matchGroup*2)(Mem(Bits(8 bits),matchDepth))
     val select = eBus.mdata.Q(2).asUInt(mAWG downto 0)
     val mra = RegInit(U(0,mAWD bits))
+    val sum = RegInit(B(0,matchGroup bits))
     when(zBus.read(0)) {
       mra := mra + 1
     } otherwise {
@@ -57,13 +58,22 @@ case class peripheralMatch( matchGroup:Int,
       mMem(i).write(
           address = mwa,
           data    = eBus.mdata.out_port,
-          enable  = eBus.mdata.written(0) && (select === i)  
+          enable  = eBus.mdata.written(0) && (select === i) // write  
       )
     }
-    zBus.in_port(7 downto matchGroup) := B(0, 8-matchGroup bits)
-    for(i <- 0 until matchGroup) {
-      zBus.in_port(i) := ((data ^ mMem(2*i).readSync(mra)) & mMem(2*i+1).readSync(mra)).orR
+    when(zBus.read(0)) {
+      for(i <- 0 until matchGroup) {
+        sum(i) := sum(i) | 
+          ((data ^ mMem(2*i).readSync(mra)) & mMem(2*i+1).readSync(mra)).orR
+      }
+    } otherwise {
+      when(zBus.written(3)) {
+        sum := B(0, matchGroup bits)
+      }
     }
+    zBus.in_port := Mux(zBus.ce & zBus.read_strobe, 
+      Mux(zBus.port_id(0),data,B(0, 8-matchGroup bits) ## sum),
+      B(0,8 bits))
 }
 class zcpsmMatch( matchGroup:Int,
                   matchDepth:Int,
@@ -74,10 +84,13 @@ class zcpsmMatch( matchGroup:Int,
                   eBusName  :String
   ) extends peripheralExt {
   def getName = "zcpsmMatch"
-  def hasEBus = false
+  def hasEBus = true
   def applyIt(core : ZcpsmCore, decport:Int) = new Area {
     import core._
     val eb = peripheralMatch(matchGroup,matchDepth,BW,MW,AWidth,Depth,eBusName)
+    val eBus = eb.eBusFactory
+    eBus <> eb.eBus
+    eBus.setName(eb.eBusName)
     dec.io.busS(decport) <> eb.zBus 
     port = dList(decport) 
   }
@@ -99,9 +112,9 @@ object ExampleMatch {
       |LOAD   s00, 00
       |Loop6:
       |INPUT  s01, 20
-      |OR     s00, s01
       |SUBCY  s02, 01
       |JUMP   NC, Loop6
+      |INPUT  s00, 21
       |OUTPUT s00, 00
       |JUMP   L0
       |;; data in s00 ;; s01 temp reg
@@ -113,6 +126,8 @@ object ExampleMatch {
       |INPUT  s00, 30
       |RETURN
       |Init:
+      |;; mac  = 0x0123456789ab
+      |;; mask = 0xffffffffffff
       |LOAD   s01, 00
       |OUTPUT s01, 11
       |OUTPUT s01, 12
@@ -151,14 +166,15 @@ object ExampleMatch {
     extends zcpsmExample(example) {
     val io = new Bundle {
       val bus  = master(zcpsmIORW(example.config.AWidth))
-      val data = master(zcpsmIORW(7,64))
+      val data = slave(zcpsmIOW(7,64))
       val sin  = slave(Stream(Bits(8 bits)))
     }
-    io.bus <> core.eBus(0).asInstanceOf[zcpsmIORW]
-    val mbus = core.eBus(2).asInstanceOf[Match.eBus]
-    mbus.mdata <> core.eBus(1).asInstanceOf[zcpsmIORW].toWriteOnly
-    mbus.data <> io.data.toWriteOnly
-    io.data.in_port := B(0, 8 bits)
+    io.bus     <> core.eBus(0).asInstanceOf[zcpsmIORW]
+    val mbus   =  core.eBus(2).asInstanceOf[Match.meBus]
+    val mdata  =  core.eBus(1).asInstanceOf[zcpsmIORW]
+    mbus.data  <> io.data
+    mbus.mdata <> mdata.toWriteOnly
+    mdata.in_port := B(0,8 bits)
     io.sin >> core.eBus(3).asInstanceOf[Stream[Bits]]
   }
 }

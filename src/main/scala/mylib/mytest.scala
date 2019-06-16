@@ -370,3 +370,42 @@ object ZcpsmExampleMixOut {
     }
   }
 }
+
+object ZcpsmExampleMatch {
+  def main(args: Array[String]) {
+    val example = ExampleMatch.TestOneGroup
+    SimConfig.withWave.doSim(new ExampleMatch.zcpsmMatchForTest(example,true)){ dut => 
+      dut.clockDomain.forkStimulus(period = 10)
+      var idx = 0
+      val packet0 = List(0x01,0x23,0x45,0x67,0x89,0xab)
+      val packet1 = List(0xff,0xff,0xff,0xff,0xff,0xff)
+      val dmem    = packet0.zipWithIndex.map{case(a,i) => (i->a)} ++
+        packet1.zipWithIndex.map{case(a,i) => (i+64->a)}
+      var cnt = 0
+      while(idx < 1024){
+        dut.io.bus.in_port #= 0
+        dut.io.sin.payload #= cnt
+        val valid = (idx&0xf) == 0
+        dut.io.sin.valid #= valid
+        if(idx < dmem.length) {
+          dut.io.data.write_strobe #= true
+          dut.io.data.ce           #= true
+          dut.io.data.port_id           #= dmem(idx)._1
+          dut.io.data.out_port          #= dmem(idx)._2
+        } else {
+          dut.io.data.write_strobe #= false
+          dut.io.data.ce           #= false
+        }
+        dut.clockDomain.waitRisingEdge()
+        
+        SimUtils.debugDump(dut)
+        SimUtils.iowDump("bus",dut.io.bus)
+        if(dut.io.sin.ready.toBoolean && valid) {
+          cnt ^= 1
+          println(f"sin: $cnt%02X")
+        }
+        idx += 1
+      }
+    }
+  }
+}
