@@ -377,10 +377,10 @@ object ZcpsmExampleMatch {
     SimConfig.withWave.doSim(new ExampleMatch.zcpsmMatchForTest(example,true)){ dut => 
       dut.clockDomain.forkStimulus(period = 10)
       var idx = 0
-      val packet0 = List(0x01,0x23,0x45,0x67,0x89,0xab)
-      val packet1 = List(0xff,0xff,0xff,0xff,0xff,0xff)
-      val dmem    = packet0.zipWithIndex.map{case(a,i) => (i->a)} ++
-        packet1.zipWithIndex.map{case(a,i) => (i+64->a)}
+      val dmem = List(
+        (0->BigInt("ab8967452301",16)),
+        (8->BigInt("ffffffffffff",16))
+      )
       var cnt = 0
       while(idx < 1024){
         dut.io.bus.in_port #= 0

@@ -72,7 +72,7 @@ case class peripheralMatch( matchGroup:Int,
       }
     }
     zBus.in_port := Mux(zBus.ce & zBus.read_strobe, 
-      Mux(zBus.port_id(0),data,B(0, 8-matchGroup bits) ## sum),
+      Mux(zBus.port_id(0),(B(0, 8-matchGroup bits) ## sum),data),
       B(0,8 bits))
 }
 class zcpsmMatch( matchGroup:Int,
