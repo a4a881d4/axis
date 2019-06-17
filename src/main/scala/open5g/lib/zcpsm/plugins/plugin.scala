@@ -33,6 +33,7 @@ case class zcpsmConfig(PWidth:Int,HWidth:Int,psm:String) {
   def initProg = for(i <- 0 until (1<<PWidth)) yield {
     if(i < program.length) B(BigInt(program(i).toHex),18 bits) else B(0,18 bits)
   }
+  def hashList = ext.map{case (p,a) => (p->a.hashCode)}
 }
 import spinal.core.internals.Misc
 case class ZcpsmCore(cfg:zcpsmConfig,
@@ -67,6 +68,8 @@ case class ZcpsmCore(cfg:zcpsmConfig,
       })
     r
   }
+
+  def hashList = cfg.hashList
   val dbPort = db finalDb
 }
 

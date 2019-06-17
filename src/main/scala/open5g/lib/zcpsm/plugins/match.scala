@@ -14,27 +14,49 @@ object Match {
     }
   }
 }
-case class peripheralMatch( matchGroup:Int,
+case class peripheralMatchBig( matchGroup:Int,
                             matchDepth:Int,
                             BW        :Int,
                             MW        :Int,
                             AWidth    :Int,
                             Depth     :Int,
                             eBusName  :String
-  ) extends Component with zcpsmMemBlocked with hasEBus {
+  ) extends Component with peripheral with hasEBus {
+    def width    = log2Up(Depth)
+    val haddr    = RegInit(U(0,width-MW bits))
+    val laddr    = RegInit(U(0,MW bits))
+    val haddrInt = Mux(zBus.written(1),zBus.out_port.asUInt(width-1 downto MW),haddr)
+    val inc      = (laddr.andR === True) | zBus.written(4)
+    when(zBus.read(0)) {
+      laddr := laddr + 1
+      when(inc) {
+        haddr := haddr + 1
+      }
+    } otherwise {
+      when(zBus.written(1)) {
+        haddr := zBus.out_port.asUInt(width-1 downto MW) + 1
+        laddr := zBus.out_port.asUInt(MW-1 downto 0)
+      }
+    }
+  
+    def ramA = if(BW>0) {
+      val block = wBus.Q(2)(BW-1 downto 0).asUInt
+      block @@ haddrInt
+    } else haddrInt
+
     val mixWidth = 1<<MW
     val mAWD = log2Up(matchDepth)
     val mAWG = log2Up(matchGroup)
     val mAW = mAWD + mAWG + 1
     def eBusFactory = slave(new Match.meBus(width+BW-MW,8*mixWidth,AWidth))
     val eBus = eBusFactory
-    val pMem = Mem(Vec(Bits(8 bits),mixWidth), (Depth/mixWidth)*(1<<BW))
-    val read = pMem.readSync(ramA(width+BW-1 downto MW))
+    val pMem = Mem(Bits(8*mixWidth bits), (Depth/mixWidth)*(1<<BW))
+    val read = pMem.readSync(address = ramA, enable = (zBus.written(1) | inc)).subdivideIn(8 bits)
     pMem.write(
             address = eBus.data.port_id.asUInt,
-            data    = eBus.data.out_port.subdivideIn(8 bits),
+            data    = eBus.data.out_port,
             enable  = eBus.data.write_strobe)  
-    val data  = read(ramA(MW-1 downto 0))
+    val data  = read(laddr)
     val mMem  = List.fill(matchGroup*2)(Mem(Bits(8 bits),matchDepth))
     val select = eBus.mdata.Q(2).asUInt(mAWG downto 0)
     val mra   = RegInit(U(0,mAWD bits))
@@ -80,10 +102,10 @@ case class peripheralMatch( matchGroup:Int,
       }
     }
     zBus.in_port := Mux(zBus.ce & zBus.read_strobe, 
-      Mux(zBus.port_id(0),(B(0, 8-matchGroup bits) ## sum),data),
+      Mux(zBus.port_id(0),(B(0, 8-matchGroup bits) ## ~sum),data),
       B(0,8 bits))
 }
-class zcpsmMatch( matchGroup:Int,
+class zcpsmMatchBig( matchGroup:Int,
                   matchDepth:Int,
                   BW        :Int,
                   MW        :Int,
@@ -95,7 +117,7 @@ class zcpsmMatch( matchGroup:Int,
   def hasEBus = true
   def applyIt(core : ZcpsmCore, decport:Int) = new Area {
     import core._
-    val eb = peripheralMatch(matchGroup,matchDepth,BW,MW,AWidth,Depth,eBusName)
+    val eb = peripheralMatchBig(matchGroup,matchDepth,BW,MW,AWidth,Depth,eBusName)
     val eBus = eb.eBusFactory
     eBus <> eb.eBus
     eBus.setName(eb.eBusName)
@@ -169,7 +191,7 @@ object ExampleMatch {
     val config = zcpsmConfig(6,4,code)
     config.addperipheral(0,new zcpsmExt(config.AWidth,"GP0"))
     config.addperipheral(1,new zcpsmExt(config.AWidth,"MP"))
-    config.addperipheral(2,new zcpsmMatch(1,16,4,3,config.AWidth,64,"Match"))
+    config.addperipheral(2,new zcpsmMatchBig(1,16,4,3,config.AWidth,64,"Match"))
     config.addperipheral(3,new zcpsmStreamSlave(1,config.AWidth,"StreamIn"))
   }
     object TestTwoGroup extends PluginsExample {
@@ -184,6 +206,7 @@ object ExampleMatch {
       |OUTPUT s00, 22
       |LOAD   s00, 00
       |OUTPUT s00, 23
+      |LOAD   s00, 06
       |OUTPUT s00, 21
       |LOAD   s00, s00 ;; Nop
       |INPUT  s01, 20
@@ -263,7 +286,7 @@ object ExampleMatch {
     val config = zcpsmConfig(7,4,code)
     config.addperipheral(0,new zcpsmExt(config.AWidth,"GP0"))
     config.addperipheral(1,new zcpsmExt(config.AWidth,"MP"))
-    config.addperipheral(2,new zcpsmMatch(2,16,4,3,config.AWidth,64,"Match"))
+    config.addperipheral(2,new zcpsmMatchBig(2,16,4,3,config.AWidth,64,"Match"))
     config.addperipheral(3,new zcpsmStreamSlave(1,config.AWidth,"StreamIn"))
   }
   class zcpsmMatchForTest(example:PluginsExample,val debug:Boolean = false) 

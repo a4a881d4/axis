@@ -378,15 +378,15 @@ object ZcpsmExampleMatch {
       dut.clockDomain.forkStimulus(period = 10)
       var idx = 0
       val dmem = List(
-        (0  -> BigInt("ab8967452301",16)),  //02
-        (8  -> BigInt("ffffffffffff",16)),  //01
-        (9  -> BigInt("ab8967452301",16)),  
+        (0  -> BigInt("ab8967452301",16)),  //01
+        (8  -> BigInt("2301ffffffffffff",16)),  //02
+        (9  -> BigInt("ffffab896745",16)),  
         (10 -> BigInt("ffffffffffff",16)),  
-        (24 -> BigInt("ab8967452301",16)),  //02
-        (16 -> BigInt("efffffffffff",16))   //03
+        (24 -> BigInt("ab8967452301",16)),  //01
+        (16 -> BigInt("efffffffffff",16))   //00
       )
       var cnt = 0
-      while(idx < 1024){
+      while(idx < 256){
         dut.io.bus.in_port #= 0
         dut.io.sin.payload #= cnt
         val valid = (idx&0xf) == 0

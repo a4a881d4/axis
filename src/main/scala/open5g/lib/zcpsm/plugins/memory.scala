@@ -58,7 +58,7 @@ case class peripheralMixIn(BW:Int, MW:Int, AWidth:Int, Depth:Int, eBusName:Strin
     def eBusFactory = slave(zcpsmIOW(width+BW-MW,8*MWidth))
     val eBus = eBusFactory
     val pMem =Mem(Vec(Bits(8 bits),MWidth), Depth/MWidth)
-    val read = pMem.readSync(ramA(width+BW-1 downto MW))
+    val read = pMem.readAsync(ramA(width+BW-1 downto MW))
     pMem.write(
             address = eBus.port_id.asUInt,
             data    = eBus.out_port.subdivideIn(8 bits),
@@ -90,8 +90,8 @@ case class peripheralMixRegOut(BW:Int, MW:Int, AWidth:Int, Depth:Int, eBusName:S
     val pMem = List.fill(MWidth)(Mem(Bits(8 bits),Depth/MWidth))
     val inport = Bits(8*MWidth bits)
     for(i <- 0 until MWidth) {
-      inport(8*i+7 downto 8*i) := pMem(i).readSync(eBus.port_id.asUInt)
-      pMem(i).write(address = ramA(width+BW-1 downto MW),
+        inport(8*i+7 downto 8*i) := pMem(i).readSync(eBus.port_id.asUInt)
+        pMem(i).write(address = ramA(width+BW-1 downto MW),
         data    = zBus.out_port,
         enable  = zBus.written(0) && (ramA(MW-1 downto 0) === i)
       )
