@@ -142,7 +142,7 @@ object ZcpsmSimExtBus {
         val addr = dut.io.debugio.port_id.toInt
         dut.io.debugio.in_port #= addr/0x55
         dut.clockDomain.waitRisingEdge()
-        SimUtils.debugDump(dut)
+        SimUtils.debugDump(dut,idx)
         SimUtils.iowDump("bus",dut.io.bus)
         SimUtils.iowDump("debug io",dut.io.debugio)
         idx += 1
@@ -162,7 +162,7 @@ object ZcpsmExampleRam {
         dut.io.bus.in_port #= 0
         dut.clockDomain.waitRisingEdge()
 
-        SimUtils.debugDump(dut)
+        SimUtils.debugDump(dut,idx)
         SimUtils.iowDump("bus",dut.io.bus)
         idx += 1
       }
@@ -186,7 +186,7 @@ object ZcpsmExampleStreamOut {
         dut.io.sout.ready #= ready
         dut.clockDomain.waitRisingEdge()
 
-        SimUtils.debugDump(dut)
+        SimUtils.debugDump(dut,idx)
         SimUtils.iowDump("bus",dut.io.bus)
         if(dut.io.sout.valid.toBoolean && ready) {
           println(f"sout: ${dut.io.sout.payload.toInt}%02X")
@@ -211,7 +211,7 @@ object ZcpsmExampleStreamIn {
         dut.io.sin.valid #= valid
         dut.clockDomain.waitRisingEdge()
 
-        SimUtils.debugDump(dut)
+        SimUtils.debugDump(dut,idx)
         SimUtils.iowDump("bus",dut.io.bus)
         if(dut.io.sin.ready.toBoolean && valid) {
           cnt += 1
@@ -243,7 +243,7 @@ object ZcpsmExampleAxis {
         dut.io.ain.valid #= valid
         dut.clockDomain.waitRisingEdge()
 
-        SimUtils.debugDump(dut)
+        SimUtils.debugDump(dut,idx)
         SimUtils.iowDump("bus",dut.io.bus)
         if(dut.io.ain.ready.toBoolean && valid) {
           if(last) {
@@ -283,7 +283,7 @@ object ZcpsmExampleRamIn {
         
         dut.clockDomain.waitRisingEdge()
 
-        SimUtils.debugDump(dut)
+        SimUtils.debugDump(dut,idx)
         SimUtils.iowDump("bus",dut.io.bus)
         idx += 1
       }
@@ -307,7 +307,7 @@ object ZcpsmExampleMixIn {
         
         dut.clockDomain.waitRisingEdge()
 
-        SimUtils.debugDump(dut)
+        SimUtils.debugDump(dut,idx)
         SimUtils.iowDump("bus",dut.io.bus)
         idx += 1
       }
@@ -334,7 +334,7 @@ object ZcpsmExampleRamOut {
         
         dut.clockDomain.waitRisingEdge()
 
-        SimUtils.debugDump(dut)
+        SimUtils.debugDump(dut,idx)
         SimUtils.iowDump("bus",dut.io.bus)
         println("read ",f"$idx%02X",f"${dut.io.r.in_port.toInt}%02X")
         idx += 1
@@ -362,7 +362,7 @@ object ZcpsmExampleMixOut {
         dut.io.r.ce           #= true
         dut.clockDomain.waitRisingEdge()
 
-        SimUtils.debugDump(dut)
+        SimUtils.debugDump(dut,idx)
         SimUtils.iowDump("bus",dut.io.bus)
         println("read ",f"$idx%02X",f"${dut.io.r.in_port.toBigInt}%X")
         idx += 1
@@ -373,13 +373,17 @@ object ZcpsmExampleMixOut {
 
 object ZcpsmExampleMatch {
   def main(args: Array[String]) {
-    val example = ExampleMatch.TestOneGroup
-    SimConfig.withWave.doSim(new ExampleMatch.zcpsmMatchForTest(example,true)){ dut => 
+    val example = ExampleMatch.TestTwoGroup
+    SimConfig.withWave.doSim(new ExampleMatch.zcpsmMatchForTest(example,false)){ dut => 
       dut.clockDomain.forkStimulus(period = 10)
       var idx = 0
       val dmem = List(
-        (0->BigInt("ab8967452301",16)),
-        (8->BigInt("ffffffffffff",16))
+        (0  -> BigInt("ab8967452301",16)),  //02
+        (8  -> BigInt("ffffffffffff",16)),  //01
+        (9  -> BigInt("ab8967452301",16)),  
+        (10 -> BigInt("ffffffffffff",16)),  
+        (24 -> BigInt("ab8967452301",16)),  //02
+        (16 -> BigInt("efffffffffff",16))   //03
       )
       var cnt = 0
       while(idx < 1024){
@@ -390,18 +394,18 @@ object ZcpsmExampleMatch {
         if(idx < dmem.length) {
           dut.io.data.write_strobe #= true
           dut.io.data.ce           #= true
-          dut.io.data.port_id           #= dmem(idx)._1
-          dut.io.data.out_port          #= dmem(idx)._2
+          dut.io.data.port_id      #= dmem(idx)._1
+          dut.io.data.out_port     #= dmem(idx)._2
         } else {
           dut.io.data.write_strobe #= false
           dut.io.data.ce           #= false
         }
         dut.clockDomain.waitRisingEdge()
         
-        SimUtils.debugDump(dut)
+        SimUtils.debugDump(dut,idx)
         SimUtils.iowDump("bus",dut.io.bus)
         if(dut.io.sin.ready.toBoolean && valid) {
-          cnt ^= 1
+          cnt = (cnt+1)%4
           println(f"sin: $cnt%02X")
         }
         idx += 1

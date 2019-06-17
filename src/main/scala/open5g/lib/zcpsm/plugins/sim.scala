@@ -17,7 +17,7 @@ object SimUtils {
     val ce           = bus.ce.toBoolean
     if(ce && write_strobe) println(name,f"${port_id}%02x",f"${out_port}%02x")
   }
-  def debugDump(dut:zcpsmExample) = {
+  def debugOut(dut:zcpsmExample) :List[String]= {
     val dbitem = if(dut.debug) dut.db.DebugItem else null
     if(dut.debug) {
       val cap = DebugUtils.Capture2Signal(dut.dbPort.capture.toBigInt,dbitem)
@@ -26,12 +26,22 @@ object SimUtils {
       val instruction = cap("/core/cpu/instruction").intValue
       val asm         = binIns(ins).disAsm
 
-      println("debug",
+      List("debug",
         f"$ins%05x",
         f"$pc%05x",
         f"$instruction%05x",
         asm.toString
       )
+    } else {
+      List[String]()
+    }
+  }
+  def debugDump(dut:zcpsmExample,idx:Int=0) = {
+    val dout = debugOut(dut)
+    if(dout.length > 0) {
+      print(f"$idx%05d ")
+      debugOut(dut).foreach(x => print(x+" "))
+      println()
     }
   }
 }
