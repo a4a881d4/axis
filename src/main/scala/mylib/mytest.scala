@@ -413,3 +413,9 @@ object ZcpsmExampleMatch {
     }
   }
 }
+object MyMatch {
+  def main(srgs: Array[String]) {
+    val example = ExampleMatch.TestTwoGroup
+    SpinalVerilog(new ExampleMatch.zcpsmMatchForTest(example,false))
+  }
+}
