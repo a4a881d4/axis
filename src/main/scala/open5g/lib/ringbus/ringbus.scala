@@ -4,15 +4,14 @@ import spinal.core._
 import spinal.lib._
 import scala.collection._
 import spinal.core.internals.Misc
+import open5g.lib.common.{Constant,ShiftReg}
 
 object ringField {
   val default = ringField(
     2, // command
     6, // addr
     3, // busid
-    5, // len
     2, // cs
-    8  // tag
   )
 }
 
@@ -20,24 +19,30 @@ case class ringHeader(config:ringConfig) extends Bundle {
   val command = Bits(config.fieldLength.command bits)
   val addr    = Bits(config.fieldLength.addr bits)
   val busid   = Bits(config.fieldLength.busid bits)
-  val len     = Bits(config.fieldLength.len bits)
+  val len     = Bits(config.len_length bits)
   val cs      = Bits(config.fieldLength.cs bits)
-  val tag     = Bits(config.fieldLength.tag bits)
-  val dAddr   = Bits(config.Bwidth - config.fieldLength.width bits)
-  def toList  = List(command,addr,busid,len,cs,tag,dAddr)
-  def toBits  = toList.reduce(_ ## _)
+  val tag     = if(config.has_tag) Bits(config.tag_length bits) else null
+  val memAddr = if(config.has_mem) UInt(config.mem_addr_length bits) else null
+  
+  def asMaster : Unit = {
+    out(command,addr,busid,len,cs)
+    if(cfg.has_tag) out(tag)
+    if(cfg.has_mem) out(memAddr)
+  } 
+  def toList  = List(command,addr,busid,len,cs,tag,memAddr).filter(_!=null)
+  def toBits  = toList.reverse.reduce(_ ## _)
   def assign(b:Bits) = {
     var start = 0
     for(f <- toList) {
-      f := b(f.getWidth+start-1 downto start)
-      start = f.getWidth+start
+      f     := b(f.getWidth+start-1 downto start)
+      start =  f.getWidth+start
     }
     this
   }
 }
 
-case class ringField(command:Int,addr:Int,busid:Int,len:Int,cs:Int,tag:Int) {
-  def width = command + addr + busid + len + cs + tag
+case class ringField(command:Int,addr:Int,busid:Int,cs:Int) {
+  def width = command + addr + busid + cs
 }
 
 case class ringConfig(
@@ -49,13 +54,29 @@ case class ringConfig(
   val items = mutable.Map(
     (0 -> ringController(this))
   )
-  val phy = 8
-  val vir = 24
   val blkSize = (Slot-1)*Bwidth/8
   val blkAW   = log2Up(Slot-1)
+  def len_length        = log2Up(Slot)
+  val error_length      = 3
+
+  val errBusLength      = Constant(1,error_length)
+  val errIllegalAddress = Constant(2,error_length)
+
+  val command_idle      = Constant(0,config.fieldLength.command)
+  val command_write     = Constant(1,config.fieldLength.command)
+  val command_read      = Constant(2,config.fieldLength.command)
+  val command_complete  = Constant(3,config.fieldLength.command)
+
+  def headerLen         = fieldLength.width + len_length
+  def tag_length        = min(8,Bwidth - headerLen)
+  def has_mem           = mem_addr_length > 0
+  def tag_start         = headerLen
+  def mem_addr_start    = headerLen + tag_length
+  def mem_addr_length   = width - mem_addr_start
+  def has_tag           = tag_length > 0
 }
 
-case class ringBundle(config:ringConfig) extends Bundle with IMasterSlave {
+case class ringIO(config:ringConfig) extends Bundle with IMasterSlave {
   val flag = Bool
   val D    = Bits(config.Bwidth bits)
   def asMaster = {
@@ -63,28 +84,28 @@ case class ringBundle(config:ringConfig) extends Bundle with IMasterSlave {
   }
 }
 
-case class txBundle(config:ringConfig) extends Bundle with IMasterSlave {
-  val tx_sop = Bool
-  val Req    = Bool
-  val tx     = Bits(config.Bwidth bits)
+case class txIO(config:ringConfig) extends Bundle with IMasterSlave {
+  val sop = Bool
+  val req = Bool
+  val D   = Bits(config.Bwidth bits)
   def asMaster = {
-    out(tx,Req)
-    in(tx_sop)
+    out(D,req)
+    in(sop)
   }
 }
 
-case class rxBundle(config:ringConfig) extends Bundle with IMasterSlave {
-  val rx_sop = Bool
-  val rx     = Bits(config.Bwidth bits)
+case class rxIO(config:ringConfig) extends Bundle with IMasterSlave {
+  val sop = Bool
+  val D     = Bits(config.Bwidth bits)
   def asMaster = {
-    out(rx,rx_sop)
+    out(D,sop)
   }
 }
 
 trait ringItem {
   val config : ringConfig
-  val bi  =  slave(ringBundle(config))
-  val bo  = master(ringBundle(config))
+  val bi  =  slave(ringIO(config))
+  val bo  = master(ringIO(config))
   def connect(p:Int):Unit = {
     Misc.reflect(this,(n,o) => o match {
       case ep:EndPoint => {
@@ -104,24 +125,24 @@ trait ringItem {
 abstract class EndPoint(val config : ringConfig
   ) extends Component with ringItem {
   val pos = in UInt(config.fieldLength.addr bits)
-  val tx =  slave(txBundle(config))
-  val rx = master(rxBundle(config))
+  val tx  =  slave(txIO(config))
+  val rx  = master(rxIO(config))
   
   val header = ringHeader(config).assign(tx.tx)
-  def idle   = header.command === B(0)
+  def idle   = config.command_idle.is(header.command)
   val fin    = bi.flag
   val rx_sop = fin & (header.busid === B(0)) & (header.addr.asUInt === pos) & !idle
-  val tx_sop = fin & tx.Req & (idle | rx_sop) 
+  val tx_sop = fin & tx.req & (idle | rx_sop) 
 
   val hold   = RegInit(False)
   val Q      = RegInit(B(0, config.Bwidth bits))
 
-  rx.rx  := bi.D
-  bo.flag    := RegNext(bi.flag)
+  rx.D    := bi.D
+  bo.flag := RegNext(bi.flag)
 
   when(bi.flag) {
     when(tx_sop) {
-      Q := tx.tx
+      Q := tx.D
     }.elsewhen(rx_sop) {
       Q := B(0, config.Bwidth bits)
     }.otherwise {
@@ -129,9 +150,11 @@ abstract class EndPoint(val config : ringConfig
     }
     hold := tx_sop
   }.elsewhen(hold) {
-    Q := tx.tx
+    Q := tx.D
   }
   bo.D := Q
+  tx.sop := tx_sop
+  rx.sop := rx_sop
 }
 
 case class ringController(config:ringConfig) extends Component with ringItem {
@@ -141,23 +164,31 @@ case class ringController(config:ringConfig) extends Component with ringItem {
   }
   val counter = RegInit(U(0, log2Up(config.Slot) bits))
   val header  = ringHeader(config).assign(bi.D)
-  val error   = (header.command =/= B(0)) & (
+  val error   = ( !config.command_idle.is(header.command)) & (
                   header.busid =/= B(0) | 
                   header.addr.asUInt > config.Num |
                   header.addr  === B(0)
                 )
-  
+  val delayF  = ShiftReg(1,config.Slot-config.Num-1)
+  val delayD  = ShiftReg(config.Bwidth,config.Slot-config.Num-1) 
+  val Q       = Reg(ringIO(config))
   when(io.sync || counter === config.Slot-1) {
     counter := U(0)
-    bo.flag := True
-    bo.D    := Mux(error,B(0),bi.D)
+    Q.flag := True
+    Q.D    := Mux(error,B(0),bi.D)
   } otherwise {
-    bo.flag := False
+    Q.flag  := False
     counter := counter + 1
-    bo.D    := bi.D
+    Q.D     := bi.D
   }
   when(counter === config.Slot-1) {
     io.error := !bi.flag | error
   }
+  delayF.io.ce    := True
+  delayD.io.ce    := True
+  delayF.io.d(0)  := Q.flag
+  delayD.io.d     := Q.D
+  bo.flag         := delayF.io.q(0)
+  bo.D            := delayD.io.q
 }
 
