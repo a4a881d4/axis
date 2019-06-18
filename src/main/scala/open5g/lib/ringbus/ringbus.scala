@@ -5,13 +5,14 @@ import spinal.lib._
 import scala.collection._
 import spinal.core.internals.Misc
 import open5g.lib.common.{Constant,ShiftReg}
+import scala.math.min
 
 object ringField {
   val default = ringField(
     2, // command
     6, // addr
     3, // busid
-    2, // cs
+    2  // cs
   )
 }
 
@@ -26,8 +27,8 @@ case class ringHeader(config:ringConfig) extends Bundle {
   
   def asMaster : Unit = {
     out(command,addr,busid,len,cs)
-    if(cfg.has_tag) out(tag)
-    if(cfg.has_mem) out(memAddr)
+    if(config.has_tag) out(tag)
+    if(config.has_mem) out(memAddr)
   } 
   def toList  = List(command,addr,busid,len,cs,tag,memAddr).filter(_!=null)
   def toBits  = toList.reverse.reduce(_ ## _)
@@ -62,17 +63,17 @@ case class ringConfig(
   val errBusLength      = Constant(1,error_length)
   val errIllegalAddress = Constant(2,error_length)
 
-  val command_idle      = Constant(0,config.fieldLength.command)
-  val command_write     = Constant(1,config.fieldLength.command)
-  val command_read      = Constant(2,config.fieldLength.command)
-  val command_complete  = Constant(3,config.fieldLength.command)
+  val command_idle      = Constant(0,fieldLength.command)
+  val command_write     = Constant(1,fieldLength.command)
+  val command_read      = Constant(2,fieldLength.command)
+  val command_complete  = Constant(3,fieldLength.command)
 
   def headerLen         = fieldLength.width + len_length
   def tag_length        = min(8,Bwidth - headerLen)
   def has_mem           = mem_addr_length > 0
   def tag_start         = headerLen
   def mem_addr_start    = headerLen + tag_length
-  def mem_addr_length   = width - mem_addr_start
+  def mem_addr_length   = Bwidth - mem_addr_start
   def has_tag           = tag_length > 0
 }
 
@@ -128,7 +129,7 @@ abstract class EndPoint(val config : ringConfig
   val tx  =  slave(txIO(config))
   val rx  = master(rxIO(config))
   
-  val header = ringHeader(config).assign(tx.tx)
+  val header = ringHeader(config).assign(tx.D)
   def idle   = config.command_idle.is(header.command)
   val fin    = bi.flag
   val rx_sop = fin & (header.busid === B(0)) & (header.addr.asUInt === pos) & !idle
