@@ -1,5 +1,27 @@
 /***
-  * 解决内存的动态使用问题
+  * 内存的动态管理
+  * 内存不需要在管理器内
+  * 假设输入为axis流以及起始地址
+  * 地址和page对齐，初步考虑page size = 256 byte
+  * 输出
+  * 
+  *
+  *   指定内存区间对应的page，stream(page address)
+  *
+  *   ------------------------------------
+  *   |Tag index|High Address|Low Address|
+  *   | 8 bits  |   6 bits   |  8 bits   |
+  *   ------------------------------------
+  *        |
+  *      4 bits + High Address -> TLB(10 bits)
+  *
+  *   
+  * 输出参数
+  *   空闲page
+  *   
+  * 输入参数
+  *   page -> adress
+  *   release 
 
 
 
