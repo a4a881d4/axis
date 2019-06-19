@@ -15,13 +15,12 @@
   *        |
   *      4 bits + High Address -> TLB(10 bits)
   *
-  *   
-  * 输出参数
-  *   空闲page
-  *   
-  * 输入参数
-  *   page -> adress
-  *   release 
+  * 
+  *   Unit                -> 空闲page
+  *   add(page -> adress) -> Unit
+  *   release(adress)     -> Unit 
+  *   get(address + len)  -> stream(page address)
+  *
 
 
 
