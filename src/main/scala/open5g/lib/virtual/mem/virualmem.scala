@@ -1,3 +1,11 @@
+/***
+  * 解决内存的动态使用问题
+
+
+
+***/
+
+
 package open5g.lib.virual.mem
 
 import spinal.core._
