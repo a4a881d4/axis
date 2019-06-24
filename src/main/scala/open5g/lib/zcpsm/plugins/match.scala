@@ -283,17 +283,17 @@ object ExampleMatch {
       |OUTPUT s01, 10
       |RETURN      
       """.stripMargin
-    val config = zcpsmConfig(7,4,code)
+    val config = zcpsmConfig(11,4,code)
     config.addperipheral(0,new zcpsmExt(config.AWidth,"GP0"))
     config.addperipheral(1,new zcpsmExt(config.AWidth,"MP"))
-    config.addperipheral(2,new zcpsmMatchBig(2,16,4,3,config.AWidth,64,"Match"))
+    config.addperipheral(2,new zcpsmMatchBig(8,16,6,3,config.AWidth,64,"Match"))
     config.addperipheral(3,new zcpsmStreamSlave(1,config.AWidth,"StreamIn"))
   }
   class zcpsmMatchForTest(example:PluginsExample,val debug:Boolean = false) 
     extends zcpsmExample(example) {
     val io = new Bundle {
       val bus  = master(zcpsmIORW(example.config.AWidth))
-      val data = slave(zcpsmIOW(7,64))
+      val data = slave(zcpsmIOW(9,64))
       val sin  = slave(Stream(Bits(8 bits)))
     }
     io.bus     <> core.eBus(0).asInstanceOf[zcpsmIORW]
