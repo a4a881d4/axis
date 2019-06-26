@@ -2,7 +2,7 @@ package open5g.lib.shared
 
 import spinal.core._
 import spinal.lib._
-
+/*
 class shared(BW: Int, SW: Int) 
   extends Bundle with IMasterSlave {
   val f    = Bool
@@ -102,3 +102,4 @@ abstract class sharedEP(val config: sharedConfig) extends Component with sharedI
     resp(current) := True
   }
 }
+*/
