@@ -419,3 +419,23 @@ object MyMatch {
     SpinalVerilog(new ExampleMatch.zcpsmMatchForTest(example,false))
   }
 }
+
+class zMatch extends Component {
+  val io = new Bundle {
+    val sin  = slave(Stream(Bits(8 bits)))
+  }
+  val example = ExampleMatch.TestTwoGroup
+  val core = new ExampleMatch.zcpsmMatchForTest(example,false)
+  core.io.sin << io.sin
+  core.io.data.port_id      := B(0)
+  core.io.data.out_port     := B(0)
+  core.io.data.write_strobe := False
+  core.io.data.ce           := False
+  core.io.bus.in_port       := B(0)
+}
+
+object MyZM {
+  def main(srgs: Array[String]) {
+    SpinalVerilog(new zMatch)
+  }
+}
